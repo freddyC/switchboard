@@ -162,16 +162,46 @@ async function jump($: EngineInterfaceBuilt, peer: Peer) {
 
 const NEW_TAB = [
   'on run argv',
+  'set command to "cd " & quoted form of item 1 of argv & " && claude"',
   'tell application "Terminal"',
+  'repeat with w in windows',
+  'repeat with t in tabs of w',
+  'if tty of t is item 2 of argv then set index of w to 1',
+  'end repeat',
+  'end repeat',
   'activate',
-  'do script "cd " & quoted form of item 1 of argv & " && claude"',
   'end tell',
+  'try',
+  'tell application "System Events" to keystroke "t" using command down',
+  'on error',
+  'tell application "Terminal" to do script command',
+  'return "window"',
+  'end try',
+  'delay 0.3',
+  'tell application "Terminal" to do script command in selected tab of front window',
+  'return "tab"',
   'end run',
 ]
 
+async function ownTty($: EngineInterfaceBuilt) {
+  const self = await $.session.id()
+  const dir = `${$.plugin.root.split('/.claude/')[0]}/.claude/sessions`
+  for (const file of await $.fs.list(dir)) {
+    const session: SessionFile = JSON.parse(await $.fs.read(`${dir}/${file.name}`).catch(() => '{}'))
+    if (session.sessionId !== self) continue
+    const ps = await $.process.run(['ps', '-o', 'tty=', '-p', String(session.pid)])
+    return `/dev/${ps.stdout.trim()}`
+  }
+  return ''
+}
+
 async function openTerminal($: EngineInterfaceBuilt) {
   const { stdout } = await $.process.run(['pwd'])
-  await $.process.run(['osascript', ...NEW_TAB.flatMap(line => ['-e', line]), stdout.trim()])
+  const script = NEW_TAB.flatMap(line => ['-e', line])
+  const opened = await $.process.run(['osascript', ...script, stdout.trim(), await ownTty($)])
+  if (opened.stdout.trim() === 'window') {
+    $.ui.toast('Opened a window: allow Terminal in System Settings › Privacy & Security › Accessibility to get tabs')
+  }
 }
 
 const BROWSER_HOME = 'https://github.com/pulls/review-requested'
