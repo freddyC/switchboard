@@ -213,6 +213,9 @@ export const register: Register = on => {
 
     return (
       <Box flexDirection="column">
+        <Text bold>
+          Sessions <Text dimColor>({list.length})</Text>
+        </Text>
         <Box marginBottom={1}>
           <Button key="new-terminal" label="＋ New terminal" hotkey="n" onPress={() => openTerminal($)} />
           <Text> </Text>
