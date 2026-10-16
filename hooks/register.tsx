@@ -364,7 +364,8 @@ export const register: Register = (on, options) => {
         {!isConfiguring && error && <Text color="red">Refresh failed: {error}</Text>}
         {!isConfiguring && list.length <= 1 && !error && <Text dimColor>No other sessions running.</Text>}
         {!isConfiguring && list.map((peer, index) => (
-          <Box flexDirection="column" marginBottom={1}>
+          <Box flexDirection="column">
+            <Text color={peer.isSelf ? 'claude' : 'subtle'}>{'━'.repeat(Math.max(1, e.props.bodyColumns))}</Text>
             <Box>
               <Text color="claude">{peer.isSelf ? '▶ ' : '  '}</Text>
               <Text>{DOT[peer.status] ?? '⚪'} </Text>
