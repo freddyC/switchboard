@@ -2,6 +2,12 @@
 
 A Claude Code side pane that lists your other local Claude sessions: status dot, title, context meter, repos, tickets and PR. Click a session to jump to it, or open a new terminal or browser from the buttons at the top.
 
+## Requirements
+
+- macOS. Jumping to a session and **＋ New terminal** drive Terminal.app through AppleScript, so they only work for sessions running in Terminal.app; the first press asks for permission to control Terminal.
+- **＋ New browser** opens the page in [Ghostty](https://ghostty.org) with `terminal-browser` when both are installed, and in your default browser otherwise.
+- The session list, status, context meter, chime and settings work in any terminal.
+
 ## Install
 
 ```
@@ -41,3 +47,6 @@ The pane's buttons and keys:
 | **⚙ Configure** or `c` | Change settings in the pane; press again to go back |
 | A PR chip, or a ticket chip when Ticket URL prefix is set | Open it in your browser |
 
+## License
+
+MIT. See [LICENSE](LICENSE).
