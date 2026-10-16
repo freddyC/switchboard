@@ -12,6 +12,7 @@ const configError = atom({ plugin: 'switchboard', key: 'configError' } as const,
 
 const DEFAULTS: Settings = {
   chime: true,
+  sound: 'chime',
   showContext: true,
   showRepos: true,
   showTickets: true,
@@ -24,7 +25,10 @@ const DEFAULTS: Settings = {
 }
 
 type Toggle = { [K in keyof Settings]: Settings[K] extends boolean ? K : never }[keyof Settings]
-type Field = Exclude<keyof Settings, Toggle>
+type Field = Exclude<keyof Settings, Toggle | 'sound'>
+
+const SOUNDS = ['chime', 'bell', 'marimba', 'pop']
+const play = ($: EngineInterface, sound: string) => $.audio.play({ asset: `sounds/${sound}.wav` }).catch(() => {})
 
 const TOGGLES: [Toggle, string][] = [
   ['chime', 'Chime when a session finishes'],
@@ -42,10 +46,12 @@ const FIELDS: [Field, string, string][] = [
   ['refreshSeconds', 'Refresh every (seconds)', String(DEFAULTS.refreshSeconds)],
 ]
 
-const readSettings = (options: PluginOptions) =>
-  Object.fromEntries(
+const readSettings = (options: PluginOptions) => {
+  const settings = Object.fromEntries(
     Object.entries(DEFAULTS).map(([key, fallback]) => [key, typeof options[key] === typeof fallback ? options[key] : fallback]),
   ) as Settings
+  return SOUNDS.includes(settings.sound) ? settings : { ...settings, sound: DEFAULTS.sound }
+}
 
 async function save($: EngineInterface, key: keyof Settings, raw: string | boolean) {
   const value = typeof DEFAULTS[key] === 'number' ? Number(raw) : typeof raw === 'string' ? raw.trim() : raw
@@ -191,7 +197,7 @@ async function refresh($: EngineInterface, settings: Settings) {
   const finished = rows.filter(row => !row.isSelf && lastStatus.get(row.pid) === 'busy' && row.status === 'idle')
   lastStatus.clear()
   for (const row of rows) lastStatus.set(row.pid, row.status)
-  if (settings.chime && isBellOwner && finished.length > 0) void $.audio.play({ asset: 'sounds/chime.wav' }).catch(() => {})
+  if (settings.chime && isBellOwner && finished.length > 0) void play($, settings.sound)
   await update($, peers, previous => (JSON.stringify(previous) === JSON.stringify(rows) ? previous : rows))
 }
 
@@ -322,6 +328,8 @@ export const register: Register = (on, options) => {
           <Text> </Text>
           <Button key="new-browser" label="＋ New browser" hotkey="b" onPress={() => openBrowser($, settings.browserHome)} />
           <Text> </Text>
+          <Button key="mute" label={settings.chime ? '🔔' : '🔕'} hotkey="m" onPress={() => save($, 'chime', !settings.chime)} />
+          <Text> </Text>
           <Button
             key="configure"
             label={isConfiguring ? '✓ Done' : '⚙ Configure'}
@@ -332,8 +340,20 @@ export const register: Register = (on, options) => {
         {isConfiguring && (
           <Box flexDirection="column">
             {TOGGLES.map(([key, label]) => (
-              <Button key={`toggle-${key}`} label={`${settings[key] ? '☑' : '☐'} ${label}`} plain onPress={() => save($, key, !settings[key])} />
+              <Button key={`toggle-${key}`} label={`${settings[key] ? '✅' : '⬜'} ${label}`} plain onPress={() => save($, key, !settings[key])} />
             ))}
+            <Box>
+              <Text>Sound: </Text>
+              {SOUNDS.map(sound => (
+                <Button
+                  key={`sound-${sound}`}
+                  label={`${sound === settings.sound ? '🔊' : '🔈'} ${sound} `}
+                  plain
+                  dimColor={sound !== settings.sound}
+                  onPress={() => Promise.all([play($, sound), save($, 'sound', sound)])}
+                />
+              ))}
+            </Box>
             {FIELDS.map(([key, label, placeholder]) => (
               <Input key={`field-${key}`} label={`${label}: `} value={String(settings[key])} placeholder={placeholder} submitLabel="save" onSubmit={value => save($, key, value)} />
             ))}

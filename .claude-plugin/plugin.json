@@ -1,6 +1,6 @@
 {
   "name": "switchboard",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "description": "Side pane listing your local Claude sessions with their title, status and PR",
   "types": "./types/index.d.ts",
   "author": {
@@ -12,6 +12,18 @@
       "title": "Chime when a session finishes",
       "description": "Play a chime when another session goes from busy (yellow) to idle (green).",
       "default": true
+    },
+    "sound": {
+      "type": "string",
+      "title": "Sound",
+      "description": "Which sound plays when a session finishes.",
+      "default": "chime",
+      "options": [
+        "chime",
+        "bell",
+        "marimba",
+        "pop"
+      ]
     },
     "showContext": {
       "type": "boolean",

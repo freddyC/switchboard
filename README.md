@@ -13,11 +13,12 @@ Run `/switchboard` to reopen the pane if you close it.
 
 ## Configure
 
-Press **⚙ Configure** (or `c`) at the top of the pane to change settings in place; press it again to go back. The same settings are in `/config` under Switchboard.
+Press **🔔** (or `m`) to mute or unmute the chime. Press **⚙ Configure** (or `c`) at the top of the pane to change settings in place; press it again to go back. The same settings are in `/config` under Switchboard.
 
 | Setting | Default |
 | --- | --- |
 | Chime when a session finishes (busy → idle) | on |
+| Sound: chime, bell, marimba or pop (pick one to hear it) | chime |
 | Context meter, repos, tickets, pull request | all on |
 | Name sessions after their `workroom-*` folder | on |
 | Ticket URL prefix, e.g. `https://yourcompany.atlassian.net/browse/` | empty: ticket IDs show without links |

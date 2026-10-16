@@ -16,6 +16,7 @@ export type Peer = {
 
 export type Settings = {
   chime: boolean
+  sound: string
   showContext: boolean
   showRepos: boolean
   showTickets: boolean
