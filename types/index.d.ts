@@ -14,6 +14,6 @@ export type Peer = {
 
 declare module 'claude-code' {
   interface PluginState {
-    'sessions-pane': { peers: Peer[]; window: number; error: string }
+    'switchboard': { peers: Peer[]; window: number; error: string }
   }
 }

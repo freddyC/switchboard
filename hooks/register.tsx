@@ -3,10 +3,10 @@ import type { EngineInterfaceBuilt, Register } from 'claude-code'
 
 import type { Peer } from '../types'
 
-const PANE = 'sessions-pane'
-const peers = atom({ plugin: 'sessions-pane', key: 'peers' } as const, [])
-const window = atom({ plugin: 'sessions-pane', key: 'window' } as const, 200_000)
-const failure = atom({ plugin: 'sessions-pane', key: 'error' } as const, '')
+const PANE = 'switchboard'
+const peers = atom({ plugin: 'switchboard', key: 'peers' } as const, [])
+const window = atom({ plugin: 'switchboard', key: 'window' } as const, 200_000)
+const failure = atom({ plugin: 'switchboard', key: 'error' } as const, '')
 
 type SessionFile = {
   pid: number
@@ -224,8 +224,8 @@ async function openUrl($: EngineInterfaceBuilt, url: string) {
 
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
-    await $.command.register({ name: 'sessions', description: 'Show your other Claude sessions in a side pane' })
-    void $.ui.open({ id: PANE, title: 'Sessions' })
+    await $.command.register({ name: 'switchboard', description: 'Show your other Claude sessions in the Switchboard pane' })
+    void $.ui.open({ id: PANE, title: 'Switchboard' })
     const tick = () =>
       refresh($)
         .then(() => update($, failure, () => ''))
@@ -236,10 +236,10 @@ export const register: Register = on => {
     return next(e)
   })
 
-  on('command.run', { command: 'sessions' }, async $ => {
-    await $.ui.open({ id: PANE, title: 'Sessions' })
+  on('command.run', { command: 'switchboard' }, async $ => {
+    await $.ui.open({ id: PANE, title: 'Switchboard' })
 
-    return { text: 'Sessions pane opened.' }
+    return { text: 'Switchboard opened.' }
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
@@ -252,7 +252,7 @@ export const register: Register = on => {
     return (
       <Box flexDirection="column">
         <Text bold>
-          Sessions <Text dimColor>({list.length})</Text>
+          Switchboard <Text dimColor>({list.length})</Text>
         </Text>
         <Box marginBottom={1}>
           <Button key="new-terminal" label="＋ New terminal" hotkey="n" onPress={() => openTerminal($)} />

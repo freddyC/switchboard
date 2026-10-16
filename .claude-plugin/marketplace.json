@@ -1,0 +1,16 @@
+{
+  "name": "switchboard",
+  "owner": {
+    "name": "Fred Christensen"
+  },
+  "metadata": {
+    "description": "Switchboard: a Claude Code side pane for your other local sessions"
+  },
+  "plugins": [
+    {
+      "name": "switchboard",
+      "description": "Side pane listing your other local Claude sessions: status dots, context meter, repos, tickets, click to jump, new terminal/browser buttons",
+      "source": "./"
+    }
+  ]
+}
