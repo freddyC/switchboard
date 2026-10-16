@@ -25,3 +25,19 @@ Press **🔔** (or `m`) to mute or unmute the chime. Press **⚙ Configure** (or
 | Browser home page | `https://github.com/pulls/review-requested` |
 | Name length | 48 |
 | Refresh every (seconds) | 5 |
+
+## Example config
+
+[`examples/settings.json`](examples/settings.json) sets every option. Copy its `pluginConfigs` block into `~/.claude/settings.json` and change what you want. The pane reloads with the new values the next time a session starts or you run `/reload-plugins`. Leave out any option to keep its default.
+
+The pane's buttons and keys:
+
+| Do this | To |
+| --- | --- |
+| Click a session, or press its number (1–9) | Jump to that session's Terminal tab |
+| **＋ New terminal** or `n` | Open a new Terminal tab |
+| **＋ New browser** or `b` | Open the browser home page |
+| **🔔** or `m` | Mute or unmute the chime |
+| **⚙ Configure** or `c` | Change settings in the pane; press again to go back |
+| A PR chip, or a ticket chip when Ticket URL prefix is set | Open it in your browser |
+

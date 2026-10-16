@@ -1,0 +1,19 @@
+{
+  "pluginConfigs": {
+    "switchboard@switchboard": {
+      "options": {
+        "chime": true,
+        "sound": "marimba",
+        "showContext": true,
+        "showRepos": true,
+        "showTickets": true,
+        "showPr": true,
+        "workroomNames": true,
+        "ticketUrl": "https://yourcompany.atlassian.net/browse/",
+        "browserHome": "https://github.com/pulls/review-requested",
+        "titleLength": 40,
+        "refreshSeconds": 5
+      }
+    }
+  }
+}
