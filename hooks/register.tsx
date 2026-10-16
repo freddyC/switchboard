@@ -1,12 +1,58 @@
 import { atom, read, update } from 'claude-code'
-import type { EngineInterfaceBuilt, Register } from 'claude-code'
+import type { EngineInterface, PluginOptions, Register } from 'claude-code'
 
-import type { Peer } from '../types'
+import type { Peer, Settings } from '../types'
 
 const PANE = 'switchboard'
 const peers = atom({ plugin: 'switchboard', key: 'peers' } as const, [])
 const window = atom({ plugin: 'switchboard', key: 'window' } as const, 200_000)
 const failure = atom({ plugin: 'switchboard', key: 'error' } as const, '')
+const configuring = atom({ plugin: 'switchboard', key: 'configuring' } as const, false)
+const configError = atom({ plugin: 'switchboard', key: 'configError' } as const, '')
+
+const DEFAULTS: Settings = {
+  chime: true,
+  showContext: true,
+  showRepos: true,
+  showTickets: true,
+  showPr: true,
+  workroomNames: true,
+  ticketUrl: '',
+  browserHome: 'https://github.com/pulls/review-requested',
+  titleLength: 48,
+  refreshSeconds: 5,
+}
+
+type Toggle = { [K in keyof Settings]: Settings[K] extends boolean ? K : never }[keyof Settings]
+type Field = Exclude<keyof Settings, Toggle>
+
+const TOGGLES: [Toggle, string][] = [
+  ['chime', 'Chime when a session finishes'],
+  ['showContext', 'Context meter'],
+  ['showRepos', 'Repos'],
+  ['showTickets', 'Tickets'],
+  ['showPr', 'Pull request'],
+  ['workroomNames', 'Name sessions after their workroom'],
+]
+
+const FIELDS: [Field, string, string][] = [
+  ['ticketUrl', 'Ticket URL prefix', 'https://yourcompany.atlassian.net/browse/'],
+  ['browserHome', 'Browser home page', DEFAULTS.browserHome],
+  ['titleLength', 'Name length', String(DEFAULTS.titleLength)],
+  ['refreshSeconds', 'Refresh every (seconds)', String(DEFAULTS.refreshSeconds)],
+]
+
+const readSettings = (options: PluginOptions) =>
+  Object.fromEntries(
+    Object.entries(DEFAULTS).map(([key, fallback]) => [key, typeof options[key] === typeof fallback ? options[key] : fallback]),
+  ) as Settings
+
+async function save($: EngineInterface, key: keyof Settings, raw: string | boolean) {
+  const value = typeof DEFAULTS[key] === 'number' ? Number(raw) : typeof raw === 'string' ? raw.trim() : raw
+  if (typeof value === 'number' && !(value > 0)) return update($, configError, () => `${key} must be a number above 0`)
+  const result = await $.config.set({ key: `switchboard.${key}`, value })
+  await update($, configError, () => ('deny' in result ? String(result.deny) : ''))
+}
 
 type SessionFile = {
   pid: number
@@ -93,9 +139,9 @@ const summaries = new Map<string, Summary>()
 const clip = (text: string, max: number) => (text.length > max ? `${text.slice(0, max - 1)}…` : text)
 const lastStatus = new Map<number, string>()
 
-const homeDir = async ($: EngineInterfaceBuilt) => (await $.env.get('HOME')) ?? ''
+const homeDir = async ($: EngineInterface) => (await $.env.get('HOME')) ?? ''
 
-async function refresh($: EngineInterfaceBuilt, shouldRing: boolean) {
+async function refresh($: EngineInterface, settings: Settings) {
   const home = await homeDir($)
   const self = await $.session.id()
   const dir = `${home}/.claude/sessions`
@@ -117,8 +163,8 @@ async function refresh($: EngineInterfaceBuilt, shouldRing: boolean) {
 
     const title = summary && summary.title !== NO_TITLE ? summary.title : ''
     const isNamedByUser = session.nameSource !== 'derived'
-    const workroom = session.cwd.split('/').find(part => part.startsWith('workroom-'))
-    const name = workroom ? workroom.slice('workroom-'.length) : isNamedByUser || !title ? session.name : clip(title, 48)
+    const workroom = settings.workroomNames ? session.cwd.split('/').find(part => part.startsWith('workroom-')) : undefined
+    const name = workroom ? workroom.slice('workroom-'.length) : isNamedByUser || !title ? session.name : clip(title, settings.titleLength)
     rows.push({
       pid: session.pid,
       isSelf: session.sessionId === self,
@@ -145,7 +191,7 @@ async function refresh($: EngineInterfaceBuilt, shouldRing: boolean) {
   const finished = rows.filter(row => !row.isSelf && lastStatus.get(row.pid) === 'busy' && row.status === 'idle')
   lastStatus.clear()
   for (const row of rows) lastStatus.set(row.pid, row.status)
-  if (shouldRing && isBellOwner && finished.length > 0) void $.audio.play({ asset: 'sounds/chime.wav' }).catch(() => {})
+  if (settings.chime && isBellOwner && finished.length > 0) void $.audio.play({ asset: 'sounds/chime.wav' }).catch(() => {})
   await update($, peers, previous => (JSON.stringify(previous) === JSON.stringify(rows) ? previous : rows))
 }
 
@@ -167,7 +213,7 @@ const SELECT_TAB = [
   'end run',
 ]
 
-async function jump($: EngineInterfaceBuilt, peer: Peer) {
+async function jump($: EngineInterface, peer: Peer) {
   const ps = await $.process.run(['ps', '-o', 'tty=', '-p', String(peer.pid)])
   const tty = ps.stdout.trim()
   if (!tty || tty === '??') return $.ui.toast(`${peer.name} has no terminal tab`)
@@ -200,7 +246,7 @@ const NEW_TAB = [
   'end run',
 ]
 
-async function ownTty($: EngineInterfaceBuilt) {
+async function ownTty($: EngineInterface) {
   const self = await $.session.id()
   const dir = `${await homeDir($)}/.claude/sessions`
   for (const file of await $.fs.list(dir)) {
@@ -212,7 +258,7 @@ async function ownTty($: EngineInterfaceBuilt) {
   return ''
 }
 
-async function openTerminal($: EngineInterfaceBuilt) {
+async function openTerminal($: EngineInterface) {
   const { stdout } = await $.process.run(['pwd'])
   const script = NEW_TAB.flatMap(line => ['-e', line])
   const opened = await $.process.run(['osascript', ...script, stdout.trim(), await ownTty($)])
@@ -221,34 +267,31 @@ async function openTerminal($: EngineInterfaceBuilt) {
   }
 }
 
-const BROWSER_HOME = 'https://github.com/pulls/review-requested'
-
-async function openBrowser($: EngineInterfaceBuilt) {
+async function openBrowser($: EngineInterface, url: string) {
   const home = await homeDir($)
   const opened = await $.process.run([
     'open', '-na', `${home}/Applications/Ghostty.app`,
-    '--args', '-e', '/opt/homebrew/bin/terminal-browser', 'open', BROWSER_HOME,
+    '--args', '-e', '/opt/homebrew/bin/terminal-browser', 'open', url,
   ])
   if (opened.exitCode !== 0) $.ui.toast(`Could not open the browser: ${opened.stderr.trim()}`)
 }
 
-async function openUrl($: EngineInterfaceBuilt, url: string) {
+async function openUrl($: EngineInterface, url: string) {
   await $.process.run(['open', url])
 }
 
 export const register: Register = (on, options) => {
-  const ticketUrl = String(options.ticketUrl ?? '')
-  const shouldRing = options.bell !== false
+  const settings = readSettings(options)
 
   on('session.start', async ($, e, next) => {
     await $.command.register({ name: 'switchboard', description: 'Show your Claude sessions in the Switchboard pane' })
     void $.ui.open({ id: PANE, title: 'Switchboard' })
     const tick = () =>
-      refresh($, shouldRing)
+      refresh($, settings)
         .then(() => update($, failure, () => ''))
         .catch(error => update($, failure, () => String(error)))
     void tick()
-    $.clock.every(5000, () => void tick())
+    $.clock.every(settings.refreshSeconds * 1000, () => void tick())
 
     return next(e)
   })
@@ -259,9 +302,12 @@ export const register: Register = (on, options) => {
     return { text: 'Switchboard opened.' }
   })
 
-  on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
-    const { Box, Button, Text } = $.ui.resolve(e)
+  on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e, next) => {
+    if (e.surface === 'mobile') return next(e)
+    const { Box, Button, Input, Text } = $.ui.resolve(e)
     const list = await read($, peers)
+    const isConfiguring = await read($, configuring)
+    const settingsError = await read($, configError)
     const size = await read($, window)
     const now = await $.clock.now()
     const error = await read($, failure)
@@ -274,11 +320,30 @@ export const register: Register = (on, options) => {
         <Box marginBottom={1}>
           <Button key="new-terminal" label="＋ New terminal" hotkey="n" onPress={() => openTerminal($)} />
           <Text> </Text>
-          <Button key="new-browser" label="＋ New browser" hotkey="b" onPress={() => openBrowser($)} />
+          <Button key="new-browser" label="＋ New browser" hotkey="b" onPress={() => openBrowser($, settings.browserHome)} />
+          <Text> </Text>
+          <Button
+            key="configure"
+            label={isConfiguring ? '✓ Done' : '⚙ Configure'}
+            hotkey="c"
+            onPress={() => update($, configuring, open => !open)}
+          />
         </Box>
-        {error && <Text color="red">Refresh failed: {error}</Text>}
-        {list.length <= 1 && !error && <Text dimColor>No other sessions running.</Text>}
-        {list.map((peer, index) => (
+        {isConfiguring && (
+          <Box flexDirection="column">
+            {TOGGLES.map(([key, label]) => (
+              <Button key={`toggle-${key}`} label={`${settings[key] ? '☑' : '☐'} ${label}`} plain onPress={() => save($, key, !settings[key])} />
+            ))}
+            {FIELDS.map(([key, label, placeholder]) => (
+              <Input key={`field-${key}`} label={`${label}: `} value={String(settings[key])} placeholder={placeholder} submitLabel="save" onSubmit={value => save($, key, value)} />
+            ))}
+            {settingsError && <Text color="red">{settingsError}</Text>}
+            <Text dimColor>Press Enter in a field to save it.</Text>
+          </Box>
+        )}
+        {!isConfiguring && error && <Text color="red">Refresh failed: {error}</Text>}
+        {!isConfiguring && list.length <= 1 && !error && <Text dimColor>No other sessions running.</Text>}
+        {!isConfiguring && list.map((peer, index) => (
           <Box flexDirection="column" marginBottom={1}>
             <Box>
               <Text color="claude">{peer.isSelf ? '▶ ' : '  '}</Text>
@@ -302,7 +367,7 @@ export const register: Register = (on, options) => {
               </Text>
             </Box>
             {peer.title && <Text>{peer.title}</Text>}
-            {peer.tokens !== undefined && (
+            {settings.showContext && peer.tokens !== undefined && (
               <Text>
                 <Text color={contextColor((peer.tokens / size) * 100)}>
                   {meter((peer.tokens / size) * 100, GLYPHS)}
@@ -312,8 +377,8 @@ export const register: Register = (on, options) => {
                 </Text>
               </Text>
             )}
-            {peer.pr && <Text dimColor>⎇ {peer.pr}</Text>}
-            {peer.repos.length > 0 && (
+            {settings.showPr && peer.pr && <Text dimColor>⎇ {peer.pr}</Text>}
+            {settings.showRepos && peer.repos.length > 0 && (
               <Box>
                 <Text dimColor>📦 </Text>
                 {peer.repos.map(repo => (
@@ -321,12 +386,12 @@ export const register: Register = (on, options) => {
                 ))}
               </Box>
             )}
-            {peer.tickets.length > 0 && (
+            {settings.showTickets && peer.tickets.length > 0 && (
               <Box>
                 <Text dimColor>🎫 </Text>
                 {peer.tickets.map(ticket =>
-                  ticketUrl ? (
-                    <Button key={`ticket-${peer.pid}-${ticket}`} label={`${ticket} `} plain dimColor onPress={() => openUrl($, `${ticketUrl}${ticket}`)} />
+                  settings.ticketUrl ? (
+                    <Button key={`ticket-${peer.pid}-${ticket}`} label={`${ticket} `} plain dimColor onPress={() => openUrl($, `${settings.ticketUrl}${ticket}`)} />
                   ) : (
                     <Text key={`ticket-${peer.pid}-${ticket}`} dimColor>{`${ticket} `}</Text>
                   ),

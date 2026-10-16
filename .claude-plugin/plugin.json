@@ -1,23 +1,71 @@
 {
   "name": "switchboard",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "description": "Side pane listing your local Claude sessions with their title, status and PR",
   "types": "./types/index.d.ts",
   "author": {
     "name": "Fred Christensen"
   },
   "userConfig": {
-    "ticketUrl": {
-      "type": "string",
-      "title": "Ticket URL prefix",
-      "description": "Ticket IDs found in a session (like ABC-123) are appended to this to make a link, e.g. https://yourcompany.atlassian.net/browse/. Leave empty to show them without links.",
-      "default": ""
-    },
-    "bell": {
+    "chime": {
       "type": "boolean",
       "title": "Chime when a session finishes",
       "description": "Play a chime when another session goes from busy (yellow) to idle (green).",
       "default": true
+    },
+    "showContext": {
+      "type": "boolean",
+      "title": "Context meter",
+      "description": "Show each session's context window meter.",
+      "default": true
+    },
+    "showRepos": {
+      "type": "boolean",
+      "title": "Repos",
+      "description": "Show the GitHub repos each session touched.",
+      "default": true
+    },
+    "showTickets": {
+      "type": "boolean",
+      "title": "Tickets",
+      "description": "Show the ticket IDs each session mentioned.",
+      "default": true
+    },
+    "showPr": {
+      "type": "boolean",
+      "title": "Pull request",
+      "description": "Show each session's linked pull request.",
+      "default": true
+    },
+    "workroomNames": {
+      "type": "boolean",
+      "title": "Name sessions after their workroom",
+      "description": "Use the workroom folder's name for sessions started inside a workroom-* folder.",
+      "default": true
+    },
+    "ticketUrl": {
+      "type": "string",
+      "title": "Ticket URL prefix",
+      "description": "Ticket IDs (like ABC-123) are appended to this to make a link, e.g. https://yourcompany.atlassian.net/browse/. Leave empty to show them without links.",
+      "default": ""
+    },
+    "browserHome": {
+      "type": "string",
+      "title": "Browser home page",
+      "description": "The page the New browser button opens.",
+      "default": "https://github.com/pulls/review-requested"
+    },
+    "titleLength": {
+      "type": "number",
+      "title": "Name length",
+      "description": "Session titles longer than this are cut off.",
+      "default": 48
+    },
+    "refreshSeconds": {
+      "type": "number",
+      "title": "Refresh every (seconds)",
+      "description": "How often the session list is re-read.",
+      "default": 5
     }
   }
 }

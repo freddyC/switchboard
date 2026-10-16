@@ -14,8 +14,21 @@ export type Peer = {
   tickets: string[]
 }
 
+export type Settings = {
+  chime: boolean
+  showContext: boolean
+  showRepos: boolean
+  showTickets: boolean
+  showPr: boolean
+  workroomNames: boolean
+  ticketUrl: string
+  browserHome: string
+  titleLength: number
+  refreshSeconds: number
+}
+
 declare module 'claude-code' {
   interface PluginState {
-    'switchboard': { peers: Peer[]; window: number; error: string }
+    'switchboard': { peers: Peer[]; window: number; error: string; configuring: boolean; configError: string }
   }
 }

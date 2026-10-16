@@ -13,4 +13,14 @@ Run `/switchboard` to reopen the pane if you close it.
 
 ## Configure
 
-Ticket IDs found in a session (like `ABC-123`) show under it. To make them links, set the ticket URL prefix in `/config` (Switchboard → Ticket URL prefix), e.g. `https://yourcompany.atlassian.net/browse/`. Left empty, they show as plain text.
+Press **⚙ Configure** (or `c`) at the top of the pane to change settings in place; press it again to go back. The same settings are in `/config` under Switchboard.
+
+| Setting | Default |
+| --- | --- |
+| Chime when a session finishes (busy → idle) | on |
+| Context meter, repos, tickets, pull request | all on |
+| Name sessions after their `workroom-*` folder | on |
+| Ticket URL prefix, e.g. `https://yourcompany.atlassian.net/browse/` | empty: ticket IDs show without links |
+| Browser home page | `https://github.com/pulls/review-requested` |
+| Name length | 48 |
+| Refresh every (seconds) | 5 |
