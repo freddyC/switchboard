@@ -1,5 +1,5 @@
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, PluginOptions, Register } from 'claude-code'
+import type { EngineInterface, PluginOptions, Register, RenderElement } from 'claude-code'
 
 import type { Peer, Settings } from '../types'
 
@@ -89,6 +89,27 @@ type Summary = { mtimeMs: number; title: string; pr?: string; tokens?: number; r
 const TICKET = /\b[A-Z]{2,10}-\d{1,6}\b/g
 const NOT_TICKETS = new Set(['UTF', 'SHA', 'ISO', 'RFC', 'GPT', 'AES', 'TLS', 'HTTP', 'UTC', 'GMT'])
 const REPO = /github\.com[/:]([A-Za-z0-9-]+\/[A-Za-z0-9._-]+?)(?:\.git)?(?=[/\s"')#?]|$)|--repo[ =]([A-Za-z0-9-]+\/[A-Za-z0-9._-]+)/g
+
+type Chip = { width: number; node: RenderElement }
+
+const GAP = '   '
+const cells = (text: string) => [...text].reduce((width, char) => width + ((char.codePointAt(0) ?? 0) >= 0x1f000 ? 2 : 1), 0)
+
+const flow = (chips: Chip[], width: number) => {
+  const rows: Chip[][] = []
+  let used = 0
+  for (const chip of chips) {
+    const last = rows.at(-1)
+    if (last && used + GAP.length + chip.width <= width) {
+      last.push(chip)
+      used += GAP.length + chip.width
+    } else {
+      rows.push([chip])
+      used = chip.width
+    }
+  }
+  return rows
+}
 
 const tally = (counts: Map<string, number>, key: string) => counts.set(key, (counts.get(key) ?? 0) + 1)
 const top = (counts: Map<string, number>) => [...counts].sort((a, b) => b[1] - a[1]).slice(0, 4).map(([key]) => key)
@@ -318,6 +339,60 @@ export const register: Register = (on, options) => {
     const now = await $.clock.now()
     const error = await read($, failure)
 
+    const lay = (chips: Chip[]) =>
+      flow(chips, e.props.bodyColumns).map(row => <Box>{row.flatMap((chip, i) => (i === 0 ? [chip.node] : [<Text>{GAP}</Text>, chip.node]))}</Box>)
+
+    const details = (peer: Peer): Chip[] => {
+      const chips: Chip[] = []
+      if (settings.showContext && peer.tokens !== undefined) {
+        const percent = (peer.tokens / size) * 100
+        const bar = meter(percent, GLYPHS)
+        const label = ` ${Math.round(percent)}% · ${Math.round(peer.tokens / 1000)}k / ${Math.round(size / 1000)}k`
+        chips.push({
+          width: cells(bar + label),
+          node: (
+            <Text>
+              <Text color={contextColor(percent)}>{bar}</Text>
+              <Text dimColor>{label}</Text>
+            </Text>
+          ),
+        })
+      }
+      if (settings.showPr && peer.pr) chips.push({ width: cells(`⎇ ${peer.pr}`), node: <Text dimColor>⎇ {peer.pr}</Text> })
+      if (settings.showRepos && peer.repos.length > 0) {
+        chips.push({
+          width: cells(`📦 ${peer.repos.join(' ')}`),
+          node: (
+            <Box>
+              <Text dimColor>📦 </Text>
+              {peer.repos.map((repo, i) => (
+                <Button key={`repo-${peer.pid}-${repo}`} label={i === 0 ? repo : ` ${repo}`} plain dimColor onPress={() => openUrl($, `https://github.com/${repo}`)} />
+              ))}
+            </Box>
+          ),
+        })
+      }
+      if (settings.showTickets && peer.tickets.length > 0) {
+        chips.push({
+          width: cells(`🎫 ${peer.tickets.join(' ')}`),
+          node: (
+            <Box>
+              <Text dimColor>🎫 </Text>
+              {peer.tickets.map((ticket, i) => {
+                const label = i === 0 ? ticket : ` ${ticket}`
+                return settings.ticketUrl ? (
+                  <Button key={`ticket-${peer.pid}-${ticket}`} label={label} plain dimColor onPress={() => openUrl($, `${settings.ticketUrl}${ticket}`)} />
+                ) : (
+                  <Text key={`ticket-${peer.pid}-${ticket}`} dimColor>{label}</Text>
+                )
+              })}
+            </Box>
+          ),
+        })
+      }
+      return chips
+    }
+
     return (
       <Box flexDirection="column">
         <Text bold>
@@ -339,9 +414,12 @@ export const register: Register = (on, options) => {
         </Box>
         {isConfiguring && (
           <Box flexDirection="column">
-            {TOGGLES.map(([key, label]) => (
-              <Button key={`toggle-${key}`} label={`${settings[key] ? '✅' : '⬜'} ${label}`} plain onPress={() => save($, key, !settings[key])} />
-            ))}
+            {lay(
+              TOGGLES.map(([key, label]) => {
+                const text = `${settings[key] ? '✅' : '⬜'} ${label}`
+                return { width: cells(text), node: <Button key={`toggle-${key}`} label={text} plain onPress={() => save($, key, !settings[key])} /> }
+              }),
+            )}
             <Box>
               <Text>Sound: </Text>
               {SOUNDS.map(sound => (
@@ -388,37 +466,7 @@ export const register: Register = (on, options) => {
               </Text>
             </Box>
             {peer.title && <Text>{peer.title}</Text>}
-            {settings.showContext && peer.tokens !== undefined && (
-              <Text>
-                <Text color={contextColor((peer.tokens / size) * 100)}>
-                  {meter((peer.tokens / size) * 100, GLYPHS)}
-                </Text>
-                <Text dimColor>
-                  {' '}{Math.round((peer.tokens / size) * 100)}% · {Math.round(peer.tokens / 1000)}k / {Math.round(size / 1000)}k
-                </Text>
-              </Text>
-            )}
-            {settings.showPr && peer.pr && <Text dimColor>⎇ {peer.pr}</Text>}
-            {settings.showRepos && peer.repos.length > 0 && (
-              <Box>
-                <Text dimColor>📦 </Text>
-                {peer.repos.map(repo => (
-                  <Button key={`repo-${peer.pid}-${repo}`} label={`${repo} `} plain dimColor onPress={() => openUrl($, `https://github.com/${repo}`)} />
-                ))}
-              </Box>
-            )}
-            {settings.showTickets && peer.tickets.length > 0 && (
-              <Box>
-                <Text dimColor>🎫 </Text>
-                {peer.tickets.map(ticket =>
-                  settings.ticketUrl ? (
-                    <Button key={`ticket-${peer.pid}-${ticket}`} label={`${ticket} `} plain dimColor onPress={() => openUrl($, `${settings.ticketUrl}${ticket}`)} />
-                  ) : (
-                    <Text key={`ticket-${peer.pid}-${ticket}`} dimColor>{`${ticket} `}</Text>
-                  ),
-                )}
-              </Box>
-            )}
+            {lay(details(peer))}
           </Box>
         ))}
       </Box>
