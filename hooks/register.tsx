@@ -19,7 +19,6 @@ type SessionFile = {
   messagingSocketPath?: string
 }
 
-const RANK: Record<string, number> = { waiting: 0, busy: 1, idle: 2 }
 const DOT: Record<string, string> = { waiting: '🔴', busy: '🟡', idle: '🟢' }
 const GLYPHS = { full: '▰', empty: '▱' }
 
@@ -101,7 +100,7 @@ async function refresh($: EngineInterfaceBuilt) {
 
   for (const file of files) {
     const session: SessionFile = JSON.parse(await $.fs.read(`${dir}/${file.name}`).catch(() => '{}'))
-    if (!session.sessionId || session.sessionId === self) continue
+    if (!session.sessionId) continue
     if (session.messagingSocketPath && !(await $.fs.exists(session.messagingSocketPath))) continue
 
     const transcriptPath = `${home}/.claude/projects/${session.cwd.replace(/[/.]/g, '-')}/${session.sessionId}.jsonl`
@@ -114,6 +113,7 @@ async function refresh($: EngineInterfaceBuilt) {
 
     rows.push({
       pid: session.pid,
+      isSelf: session.sessionId === self,
       name: session.name,
       status: session.status,
       waitingFor: session.waitingFor,
@@ -130,7 +130,7 @@ async function refresh($: EngineInterfaceBuilt) {
   const size = (await $.session.usage()).context.window
   if (size) await update($, window, previous => (previous === size ? previous : size))
 
-  rows.sort((a, b) => (RANK[a.status] ?? 3) - (RANK[b.status] ?? 3) || b.startedAt - a.startedAt)
+  rows.sort((a, b) => a.startedAt - b.startedAt || a.pid - b.pid)
   await update($, peers, previous => (JSON.stringify(previous) === JSON.stringify(rows) ? previous : rows))
 }
 
@@ -225,7 +225,7 @@ export const register: Register = (on, options) => {
   const ticketUrl = String(options.ticketUrl ?? '')
 
   on('session.start', async ($, e, next) => {
-    await $.command.register({ name: 'switchboard', description: 'Show your other Claude sessions in the Switchboard pane' })
+    await $.command.register({ name: 'switchboard', description: 'Show your Claude sessions in the Switchboard pane' })
     void $.ui.open({ id: PANE, title: 'Switchboard' })
     const tick = () =>
       refresh($)
@@ -261,18 +261,25 @@ export const register: Register = (on, options) => {
           <Button key="new-browser" label="＋ New browser" hotkey="b" onPress={() => openBrowser($)} />
         </Box>
         {error && <Text color="red">Refresh failed: {error}</Text>}
-        {list.length === 0 && !error && <Text dimColor>No other sessions running.</Text>}
+        {list.length <= 1 && !error && <Text dimColor>No other sessions running.</Text>}
         {list.map((peer, index) => (
           <Box flexDirection="column" marginBottom={1}>
             <Box>
+              <Text color="claude">{peer.isSelf ? '▶ ' : '  '}</Text>
               <Text>{DOT[peer.status] ?? '⚪'} </Text>
-              <Button
-                key={`jump-${peer.pid}`}
-                label={peer.name}
-                hotkey={index < 9 ? String(index + 1) : undefined}
-                plain
-                onPress={() => jump($, peer)}
-              />
+              {peer.isSelf ? (
+                <Text bold color="claude">
+                  {index + 1}: {peer.name} <Text dimColor>(you)</Text>
+                </Text>
+              ) : (
+                <Button
+                  key={`jump-${peer.pid}`}
+                  label={peer.name}
+                  hotkey={index < 9 ? String(index + 1) : undefined}
+                  plain
+                  onPress={() => jump($, peer)}
+                />
+              )}
               {peer.status === 'waiting' && <Text color="red"> {peer.waitingFor ?? 'needs you'}</Text>}
               <Text dimColor>
                 {' '}· {age(now - peer.startedAt)} · {peer.folder}

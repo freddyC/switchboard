@@ -1,7 +1,7 @@
 {
   "name": "switchboard",
-  "version": "0.5.0",
-  "description": "Side pane listing your other local Claude sessions with their title, status and PR",
+  "version": "0.6.0",
+  "description": "Side pane listing your local Claude sessions with their title, status and PR",
   "types": "./types/index.d.ts",
   "author": {
     "name": "Fred Christensen"

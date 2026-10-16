@@ -1,5 +1,6 @@
 export type Peer = {
   pid: number
+  isSelf: boolean
   name: string
   status: string
   waitingFor?: string
