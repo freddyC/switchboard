@@ -117,15 +117,18 @@ async function refresh($: EngineInterfaceBuilt, shouldRing: boolean) {
 
     const title = summary && summary.title !== NO_TITLE ? summary.title : ''
     const isNamedByUser = session.nameSource !== 'derived'
+    const workroom = session.cwd.split('/').find(part => part.startsWith('workroom-'))
+    const name = workroom ? workroom.slice('workroom-'.length) : isNamedByUser || !title ? session.name : clip(title, 48)
     rows.push({
       pid: session.pid,
       isSelf: session.sessionId === self,
-      name: isNamedByUser || !title ? session.name : clip(title, 48),
+      name,
+      isWorkroom: workroom !== undefined,
       status: session.status,
       waitingFor: session.waitingFor,
       startedAt: session.startedAt,
       folder: session.cwd.split('/').pop() ?? session.cwd,
-      title: isNamedByUser ? title : '',
+      title: workroom || isNamedByUser ? title : '',
       pr: summary?.pr,
       tokens: summary?.tokens,
       repos: summary?.repos ?? [],
@@ -282,12 +285,12 @@ export const register: Register = (on, options) => {
               <Text>{DOT[peer.status] ?? '⚪'} </Text>
               {peer.isSelf ? (
                 <Text bold color="claude">
-                  {index + 1}: {peer.name} <Text dimColor>(you)</Text>
+                  {index + 1}: {peer.isWorkroom ? '📁 ' : ''}{peer.name} <Text dimColor>(you)</Text>
                 </Text>
               ) : (
                 <Button
                   key={`jump-${peer.pid}`}
-                  label={peer.name}
+                  label={peer.isWorkroom ? `📁 ${peer.name}` : peer.name}
                   hotkey={index < 9 ? String(index + 1) : undefined}
                   plain
                   onPress={() => jump($, peer)}
