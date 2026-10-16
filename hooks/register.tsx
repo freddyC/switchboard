@@ -33,7 +33,6 @@ const contextColor = (percent: number) => (percent >= 80 ? 'red' : percent >= 60
 
 type Summary = { mtimeMs: number; title: string; pr?: string; tokens?: number; repos: string[]; tickets: string[] }
 
-const JIRA = ''
 const TICKET = /\b[A-Z]{2,10}-\d{1,6}\b/g
 const NOT_TICKETS = new Set(['UTF', 'SHA', 'ISO', 'RFC', 'GPT', 'AES', 'TLS', 'HTTP', 'UTC', 'GMT'])
 const REPO = /github\.com[/:]([A-Za-z0-9-]+\/[A-Za-z0-9._-]+?)(?:\.git)?(?=[/\s"')#?]|$)|--repo[ =]([A-Za-z0-9-]+\/[A-Za-z0-9._-]+)/g
@@ -222,7 +221,9 @@ async function openUrl($: EngineInterfaceBuilt, url: string) {
   await $.process.run(['open', url])
 }
 
-export const register: Register = on => {
+export const register: Register = (on, options) => {
+  const ticketUrl = String(options.ticketUrl ?? '')
+
   on('session.start', async ($, e, next) => {
     await $.command.register({ name: 'switchboard', description: 'Show your other Claude sessions in the Switchboard pane' })
     void $.ui.open({ id: PANE, title: 'Switchboard' })
@@ -300,9 +301,13 @@ export const register: Register = on => {
             {peer.tickets.length > 0 && (
               <Box>
                 <Text dimColor>🎫 </Text>
-                {peer.tickets.map(ticket => (
-                  <Button key={`ticket-${peer.pid}-${ticket}`} label={`${ticket} `} plain dimColor onPress={() => openUrl($, `${JIRA}${ticket}`)} />
-                ))}
+                {peer.tickets.map(ticket =>
+                  ticketUrl ? (
+                    <Button key={`ticket-${peer.pid}-${ticket}`} label={`${ticket} `} plain dimColor onPress={() => openUrl($, `${ticketUrl}${ticket}`)} />
+                  ) : (
+                    <Text key={`ticket-${peer.pid}-${ticket}`} dimColor>{`${ticket} `}</Text>
+                  ),
+                )}
               </Box>
             )}
           </Box>

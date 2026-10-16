@@ -1,9 +1,17 @@
 {
   "name": "switchboard",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Side pane listing your other local Claude sessions with their title, status and PR",
   "types": "./types/index.d.ts",
   "author": {
     "name": "Fred Christensen"
+  },
+  "userConfig": {
+    "ticketUrl": {
+      "type": "string",
+      "title": "Ticket URL prefix",
+      "description": "Ticket IDs found in a session (like ABC-123) are appended to this to make a link, e.g. https://yourcompany.atlassian.net/browse/. Leave empty to show them without links.",
+      "default": ""
+    }
   }
 }

@@ -10,3 +10,7 @@ A Claude Code side pane that lists your other local Claude sessions: status dot,
 ```
 
 Run `/switchboard` to reopen the pane if you close it.
+
+## Configure
+
+Ticket IDs found in a session (like `ABC-123`) show under it. To make them links, set the ticket URL prefix in `/config` (Switchboard → Ticket URL prefix), e.g. `https://yourcompany.atlassian.net/browse/`. Left empty, they show as plain text.
