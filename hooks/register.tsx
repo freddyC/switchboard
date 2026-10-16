@@ -166,6 +166,16 @@ const summarize = (transcript: string): Omit<Summary, 'mtimeMs'> => {
 const summaries = new Map<string, Summary>()
 const clip = (text: string, max: number) => (text.length > max ? `${text.slice(0, max - 1)}…` : text)
 const lastStatus = new Map<number, string>()
+let paneTitle = ''
+
+async function retitle($: EngineInterface, count: number) {
+  const title = `Switchboard (${count})`
+  if (title === paneTitle) return
+  const isOpen = (await $.ui.panes()).some(pane => pane.id === PANE)
+  if (!isOpen) return
+  paneTitle = title
+  await $.ui.open({ id: PANE, title })
+}
 
 const homeDir = async ($: EngineInterface) => (await $.env.get('HOME')) ?? ''
 
@@ -220,6 +230,7 @@ async function refresh($: EngineInterface, settings: Settings) {
   lastStatus.clear()
   for (const row of rows) lastStatus.set(row.pid, row.status)
   if (settings.chime && isBellOwner && finished.length > 0) void play($, settings.sound)
+  await retitle($, rows.length)
   await update($, peers, previous => (JSON.stringify(previous) === JSON.stringify(rows) ? previous : rows))
 }
 
@@ -313,7 +324,7 @@ export const register: Register = (on, options) => {
 
   on('session.start', async ($, e, next) => {
     await $.command.register({ name: 'switchboard', description: 'Show your Claude sessions in the Switchboard pane' })
-    void $.ui.open({ id: PANE, title: 'Switchboard' })
+    void $.ui.open({ id: PANE, title: paneTitle || 'Switchboard' })
     const tick = () =>
       refresh($, settings)
         .then(() => update($, failure, () => ''))
@@ -325,7 +336,7 @@ export const register: Register = (on, options) => {
   })
 
   on('command.run', { command: 'switchboard' }, async $ => {
-    await $.ui.open({ id: PANE, title: 'Switchboard' })
+    await $.ui.open({ id: PANE, title: paneTitle || 'Switchboard' })
 
     return { text: 'Switchboard opened.' }
   })
@@ -396,9 +407,6 @@ export const register: Register = (on, options) => {
 
     return (
       <Box flexDirection="column">
-        <Text bold>
-          Switchboard <Text dimColor>({list.length})</Text>
-        </Text>
         <Box marginBottom={1}>
           <Button key="new-terminal" label="＋ New terminal" hotkey="n" onPress={() => openTerminal($)} />
           <Text> </Text>
