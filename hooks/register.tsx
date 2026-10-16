@@ -93,6 +93,7 @@ const REPO = /github\.com[/:]([A-Za-z0-9-]+\/[A-Za-z0-9._-]+?)(?:\.git)?(?=[/\s"
 type Chip = { width: number; node: RenderElement }
 
 const GAP = '   '
+const DETAIL_INDENT = 6
 const cells = (text: string) => [...text].reduce((width, char) => width + ((char.codePointAt(0) ?? 0) >= 0x1f000 ? 2 : 1), 0)
 
 const flow = (chips: Chip[], width: number) => {
@@ -339,8 +340,8 @@ export const register: Register = (on, options) => {
     const now = await $.clock.now()
     const error = await read($, failure)
 
-    const lay = (chips: Chip[]) =>
-      flow(chips, e.props.bodyColumns).map(row => <Box>{row.flatMap((chip, i) => (i === 0 ? [chip.node] : [<Text>{GAP}</Text>, chip.node]))}</Box>)
+    const lay = (chips: Chip[], indent = 0) =>
+      flow(chips, e.props.bodyColumns - indent).map(row => <Box paddingLeft={indent}>{row.flatMap((chip, i) => (i === 0 ? [chip.node] : [<Text>{GAP}</Text>, chip.node]))}</Box>)
 
     const details = (peer: Peer): Chip[] => {
       const chips: Chip[] = []
@@ -466,7 +467,7 @@ export const register: Register = (on, options) => {
               </Text>
             </Box>
             {peer.title && <Text>{peer.title}</Text>}
-            {lay(details(peer))}
+            {lay(details(peer), DETAIL_INDENT)}
           </Box>
         ))}
       </Box>
