@@ -6,6 +6,7 @@ import type { Peer } from '../types'
 const PANE = 'sessions-pane'
 const peers = atom({ plugin: 'sessions-pane', key: 'peers' } as const, [])
 const window = atom({ plugin: 'sessions-pane', key: 'window' } as const, 200_000)
+const failure = atom({ plugin: 'sessions-pane', key: 'error' } as const, '')
 
 type SessionFile = {
   pid: number
@@ -90,8 +91,10 @@ const summarize = (transcript: string): Omit<Summary, 'mtimeMs'> => {
 
 const summaries = new Map<string, Summary>()
 
+const homeDir = async ($: EngineInterfaceBuilt) => (await $.env.get('HOME')) ?? ''
+
 async function refresh($: EngineInterfaceBuilt) {
-  const home = $.plugin.root.split('/.claude/')[0]
+  const home = await homeDir($)
   const self = await $.session.id()
   const dir = `${home}/.claude/sessions`
   const files = (await $.fs.list(dir)).filter(entry => entry.name.endsWith('.json'))
@@ -185,7 +188,7 @@ const NEW_TAB = [
 
 async function ownTty($: EngineInterfaceBuilt) {
   const self = await $.session.id()
-  const dir = `${$.plugin.root.split('/.claude/')[0]}/.claude/sessions`
+  const dir = `${await homeDir($)}/.claude/sessions`
   for (const file of await $.fs.list(dir)) {
     const session: SessionFile = JSON.parse(await $.fs.read(`${dir}/${file.name}`).catch(() => '{}'))
     if (session.sessionId !== self) continue
@@ -207,7 +210,7 @@ async function openTerminal($: EngineInterfaceBuilt) {
 const BROWSER_HOME = 'https://github.com/pulls/review-requested'
 
 async function openBrowser($: EngineInterfaceBuilt) {
-  const home = $.plugin.root.split('/.claude/')[0]
+  const home = await homeDir($)
   const opened = await $.process.run([
     'open', '-na', `${home}/Applications/Ghostty.app`,
     '--args', '-e', '/opt/homebrew/bin/terminal-browser', 'open', BROWSER_HOME,
@@ -223,8 +226,12 @@ export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await $.command.register({ name: 'sessions', description: 'Show your other Claude sessions in a side pane' })
     void $.ui.open({ id: PANE, title: 'Sessions' })
-    void refresh($)
-    $.clock.every(5000, () => void refresh($))
+    const tick = () =>
+      refresh($)
+        .then(() => update($, failure, () => ''))
+        .catch(error => update($, failure, () => String(error)))
+    void tick()
+    $.clock.every(5000, () => void tick())
 
     return next(e)
   })
@@ -240,6 +247,7 @@ export const register: Register = on => {
     const list = await read($, peers)
     const size = await read($, window)
     const now = await $.clock.now()
+    const error = await read($, failure)
 
     return (
       <Box flexDirection="column">
@@ -251,7 +259,8 @@ export const register: Register = on => {
           <Text> </Text>
           <Button key="new-browser" label="＋ New browser" hotkey="b" onPress={() => openBrowser($)} />
         </Box>
-        {list.length === 0 && <Text dimColor>No other sessions running.</Text>}
+        {error && <Text color="red">Refresh failed: {error}</Text>}
+        {list.length === 0 && !error && <Text dimColor>No other sessions running.</Text>}
         {list.map((peer, index) => (
           <Box flexDirection="column" marginBottom={1}>
             <Box>

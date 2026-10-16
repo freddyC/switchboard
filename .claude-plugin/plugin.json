@@ -1,6 +1,6 @@
 {
   "name": "sessions-pane",
-  "version": "0.3.0",
+  "version": "0.3.2",
   "description": "Side pane listing your other local Claude sessions with their title, status and PR",
   "types": "./types/index.d.ts",
   "author": {
