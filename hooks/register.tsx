@@ -307,11 +307,13 @@ async function openTerminal($: EngineInterface) {
 }
 
 async function openBrowser($: EngineInterface, url: string) {
-  const home = await homeDir($)
-  const opened = await $.process.run([
-    'open', '-na', `${home}/Applications/Ghostty.app`,
-    '--args', '-e', '/opt/homebrew/bin/terminal-browser', 'open', url,
-  ])
+  const found = await $.process.run(['sh', '-lc', 'command -v terminal-browser'])
+  const terminalBrowser = found.stdout.trim()
+  if (found.exitCode === 0 && terminalBrowser) {
+    const opened = await $.process.run(['open', '-na', 'Ghostty', '--args', '-e', terminalBrowser, 'open', url])
+    if (opened.exitCode === 0) return
+  }
+  const opened = await $.process.run(['open', url])
   if (opened.exitCode !== 0) $.ui.toast(`Could not open the browser: ${opened.stderr.trim()}`)
 }
 
