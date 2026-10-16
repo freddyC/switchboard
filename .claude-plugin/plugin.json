@@ -1,6 +1,6 @@
 {
   "name": "switchboard",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "Side pane listing your local Claude sessions with their title, status and PR",
   "types": "./types/index.d.ts",
   "author": {
@@ -12,6 +12,12 @@
       "title": "Ticket URL prefix",
       "description": "Ticket IDs found in a session (like ABC-123) are appended to this to make a link, e.g. https://yourcompany.atlassian.net/browse/. Leave empty to show them without links.",
       "default": ""
+    },
+    "bell": {
+      "type": "boolean",
+      "title": "Chime when a session finishes",
+      "description": "Play a chime when another session goes from busy (yellow) to idle (green).",
+      "default": true
     }
   }
 }

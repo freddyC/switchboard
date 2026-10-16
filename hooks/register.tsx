@@ -14,12 +14,14 @@ type SessionFile = {
   cwd: string
   startedAt: number
   name: string
+  nameSource?: string
   status: string
   waitingFor?: string
   messagingSocketPath?: string
 }
 
 const DOT: Record<string, string> = { waiting: '🔴', busy: '🟡', idle: '🟢' }
+const NO_TITLE = '(no title yet)'
 const GLYPHS = { full: '▰', empty: '▱' }
 
 const meter = (percent: number, glyphs: { full: string; empty: string }) => {
@@ -84,14 +86,16 @@ const summarize = (transcript: string): Omit<Summary, 'mtimeMs'> => {
     } catch {}
   }
 
-  return { title: title || prompt.slice(0, 80) || '(no title yet)', pr, tokens, repos: top(repos), tickets: top(tickets) }
+  return { title: title || prompt.slice(0, 80) || NO_TITLE, pr, tokens, repos: top(repos), tickets: top(tickets) }
 }
 
 const summaries = new Map<string, Summary>()
+const clip = (text: string, max: number) => (text.length > max ? `${text.slice(0, max - 1)}…` : text)
+const lastStatus = new Map<number, string>()
 
 const homeDir = async ($: EngineInterfaceBuilt) => (await $.env.get('HOME')) ?? ''
 
-async function refresh($: EngineInterfaceBuilt) {
+async function refresh($: EngineInterfaceBuilt, shouldRing: boolean) {
   const home = await homeDir($)
   const self = await $.session.id()
   const dir = `${home}/.claude/sessions`
@@ -111,15 +115,17 @@ async function refresh($: EngineInterfaceBuilt) {
       summaries.set(session.sessionId, summary)
     }
 
+    const title = summary && summary.title !== NO_TITLE ? summary.title : ''
+    const isNamedByUser = session.nameSource !== 'derived'
     rows.push({
       pid: session.pid,
       isSelf: session.sessionId === self,
-      name: session.name,
+      name: isNamedByUser || !title ? session.name : clip(title, 48),
       status: session.status,
       waitingFor: session.waitingFor,
       startedAt: session.startedAt,
       folder: session.cwd.split('/').pop() ?? session.cwd,
-      title: summary?.title ?? '(no transcript yet)',
+      title: isNamedByUser ? title : '',
       pr: summary?.pr,
       tokens: summary?.tokens,
       repos: summary?.repos ?? [],
@@ -131,6 +137,12 @@ async function refresh($: EngineInterfaceBuilt) {
   if (size) await update($, window, previous => (previous === size ? previous : size))
 
   rows.sort((a, b) => a.startedAt - b.startedAt || a.pid - b.pid)
+
+  const isBellOwner = rows[0]?.isSelf === true
+  const finished = rows.filter(row => !row.isSelf && lastStatus.get(row.pid) === 'busy' && row.status === 'idle')
+  lastStatus.clear()
+  for (const row of rows) lastStatus.set(row.pid, row.status)
+  if (shouldRing && isBellOwner && finished.length > 0) void $.audio.play({ asset: 'sounds/chime.wav' }).catch(() => {})
   await update($, peers, previous => (JSON.stringify(previous) === JSON.stringify(rows) ? previous : rows))
 }
 
@@ -223,12 +235,13 @@ async function openUrl($: EngineInterfaceBuilt, url: string) {
 
 export const register: Register = (on, options) => {
   const ticketUrl = String(options.ticketUrl ?? '')
+  const shouldRing = options.bell !== false
 
   on('session.start', async ($, e, next) => {
     await $.command.register({ name: 'switchboard', description: 'Show your Claude sessions in the Switchboard pane' })
     void $.ui.open({ id: PANE, title: 'Switchboard' })
     const tick = () =>
-      refresh($)
+      refresh($, shouldRing)
         .then(() => update($, failure, () => ''))
         .catch(error => update($, failure, () => String(error)))
     void tick()
@@ -285,7 +298,7 @@ export const register: Register = (on, options) => {
                 {' '}· {age(now - peer.startedAt)} · {peer.folder}
               </Text>
             </Box>
-            <Text>{peer.title}</Text>
+            {peer.title && <Text>{peer.title}</Text>}
             {peer.tokens !== undefined && (
               <Text>
                 <Text color={contextColor((peer.tokens / size) * 100)}>
