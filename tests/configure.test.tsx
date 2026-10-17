@@ -5,6 +5,7 @@ const PANE = { title: 'Switchboard', isFocused: true, bodyColumns: 60, placement
 test('Configure shows the settings and saves a toggle and a field', async ($, on) => {
   const saved: { key: string; value: unknown }[] = []
   mock.clock(on)
+  mock.env(on, {}) // not Windows, so sounds go through $.audio.play
   const played: unknown[] = []
   on('audio.play', (_, e, next) => {
     played.push(e.clip)

@@ -41,6 +41,8 @@ test('on Windows it reads USERPROFILE, checks pids with tasklist, and opens wt a
   on('fs.exists', async () => ({ value: false }))
   let tabExists = true
   const tabsAsked: string[] = []
+  const soundsPlayed: string[] = []
+  on('config.set', async (_, e) => ({ value: e.value }))
   on('process.run', async (_, e) => {
     runs.push([...e.argv])
     let stdout = ''
@@ -51,6 +53,7 @@ test('on Windows it reads USERPROFILE, checks pids with tasklist, and opens wt a
       expect(slashed(env.SWITCHBOARD_FILE)).toBe('C:/Users/me/.claude/projects/C--Users-me-work-workroom-abc/live.jsonl')
       stdout = `ut":1}\n${TRANSCRIPT}`
     }
+    if (e.argv[0] === 'powershell.exe' && env.SWITCHBOARD_SOUND) soundsPlayed.push(slashed(env.SWITCHBOARD_SOUND))
     if (e.argv[0] === 'powershell.exe' && env.SWITCHBOARD_TABS) {
       tabsAsked.push(env.SWITCHBOARD_TABS)
       stdout = tabExists ? 'ok\r\n' : 'missing\r\n'
@@ -103,6 +106,14 @@ test('on Windows it reads USERPROFILE, checks pids with tasklist, and opens wt a
 
     // Wide: the age and folder sit on the name's line.
     expect(await ui.find({ text: /^ · 0m · workroom-abc$/ })).toBeTruthy()
+
+    // $.audio.play is silent on Windows, so picking a sound plays it through SoundPlayer.
+    soundsPlayed.length = 0
+    await ui.press({ key: 'configure' })
+    await ui.press({ key: 'sound-bell' })
+    await ui.press({ key: 'configure' })
+    expect(soundsPlayed).toHaveLength(1)
+    expect(soundsPlayed[0]).toMatch(/\/sounds\/bell\.wav$/)
   }
 })
 

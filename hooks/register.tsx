@@ -28,7 +28,16 @@ type Toggle = { [K in keyof Settings]: Settings[K] extends boolean ? K : never }
 type Field = Exclude<keyof Settings, Toggle | 'sound'>
 
 const SOUNDS = ['chime', 'bell', 'marimba', 'pop']
-const play = ($: EngineInterface, sound: string) => $.audio.play({ asset: `sounds/${sound}.wav` }).catch(() => {})
+// $.audio.play has a player only on macOS (afplay); on Windows it plays nothing, so the clip
+// goes through .NET's SoundPlayer instead.
+async function play($: EngineInterface, sound: string) {
+  if (!(await isWindows($))) return $.audio.play({ asset: `sounds/${sound}.wav` }).catch(() => {})
+  await $.process
+    .run(['powershell.exe', '-NoProfile', '-NonInteractive', '-Command', '(New-Object System.Media.SoundPlayer $env:SWITCHBOARD_SOUND).PlaySync()'], {
+      env: { SWITCHBOARD_SOUND: `${$.plugin.root}/sounds/${sound}.wav` },
+    })
+    .catch(() => {})
+}
 
 const TOGGLES: [Toggle, string][] = [
   ['chime', 'Chime when a session finishes'],
