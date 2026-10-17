@@ -88,22 +88,27 @@ type Summary = { mtimeMs: number; title: string; pr?: string; tokens?: number; r
 
 const TICKET = /\b[A-Z]{2,10}-\d{1,6}\b/g
 const NOT_TICKETS = new Set(['UTF', 'SHA', 'ISO', 'RFC', 'GPT', 'AES', 'TLS', 'HTTP', 'UTC', 'GMT'])
+// github.com paths whose first part is a GitHub page, not an owner (github.com/pulls/review-requested).
+const NOT_OWNERS = new Set(['pulls', 'issues', 'orgs', 'settings', 'notifications', 'login', 'search', 'marketplace', 'features', 'sponsors', 'topics', 'apps'])
 const REPO = /github\.com[/:]([A-Za-z0-9-]+\/[A-Za-z0-9._-]+?)(?:\.git)?(?=[/\s"')#?]|$)|--repo[ =]([A-Za-z0-9-]+\/[A-Za-z0-9._-]+)/g
 
 type Chip = { width: number; node: RenderElement }
 
 const GAP = '   '
 const DETAIL_INDENT = 6
-const cells = (text: string) => [...text].reduce((width, char) => width + ((char.codePointAt(0) ?? 0) >= 0x1f000 ? 2 : 1), 0)
+const isWide = (code: number) => code >= 0x1f000 || (code >= 0xff01 && code <= 0xff60)
+const cells = (text: string) => [...text].reduce((width, char) => width + (isWide(char.codePointAt(0) ?? 0) ? 2 : 1), 0)
+// A terminal Button draws as "[ label ]"; a hotkeyed one adds "n: " before the label.
+const BUTTON_FRAME = 4
 
-const flow = (chips: Chip[], width: number) => {
+const flow = (chips: Chip[], width: number, gap = GAP) => {
   const rows: Chip[][] = []
   let used = 0
   for (const chip of chips) {
     const last = rows.at(-1)
-    if (last && used + GAP.length + chip.width <= width) {
+    if (last && used + gap.length + chip.width <= width) {
       last.push(chip)
-      used += GAP.length + chip.width
+      used += gap.length + chip.width
     } else {
       rows.push([chip])
       used = chip.width
@@ -153,7 +158,11 @@ const summarize = (transcript: string): Omit<Summary, 'mtimeMs'> => {
       }
       for (const text of textsOf(entry)) {
         for (const [ticket] of text.matchAll(TICKET)) if (!NOT_TICKETS.has(ticket.split('-')[0])) tally(tickets, ticket)
-        for (const match of text.matchAll(REPO)) tally(repos, match[1] ?? match[2])
+        for (const match of text.matchAll(REPO)) {
+          // A repo at the end of a sentence ("see freddyC/centipede.") keeps the period otherwise.
+          const repo = (match[1] ?? match[2]).replace(/\.+$/, '')
+          if (!NOT_OWNERS.has(repo.split('/')[0])) tally(repos, repo)
+        }
       }
       const usage = entry.type === 'assistant' ? entry.message?.usage : undefined
       if (usage) tokens = usage.input_tokens + (usage.cache_creation_input_tokens ?? 0) + (usage.cache_read_input_tokens ?? 0)
@@ -435,21 +444,24 @@ export const register: Register = (on, options) => {
       return chips
     }
 
+    const button = (key: string, label: string, onPress: () => unknown, hotkey: string): Chip => ({
+      width: cells(label) + BUTTON_FRAME,
+      node: <Button key={key} label={label} hotkey={hotkey} onPress={onPress} />,
+    })
+    const toolbar = [
+      button('new-terminal', '＋ New terminal', () => openTerminal($), 'n'),
+      button('new-browser', '＋ New browser', () => openBrowser($, settings.browserHome), 'b'),
+      button('mute', settings.chime ? '🔔' : '🔕', () => save($, 'chime', !settings.chime), 'm'),
+      button('configure', isConfiguring ? '✓ Done' : '⚙ Configure', () => update($, configuring, open => !open), 'c'),
+    ]
+
     return (
       <Box flexDirection="column">
-        <Box marginBottom={1}>
-          <Button key="new-terminal" label="＋ New terminal" hotkey="n" onPress={() => openTerminal($)} />
-          <Text> </Text>
-          <Button key="new-browser" label="＋ New browser" hotkey="b" onPress={() => openBrowser($, settings.browserHome)} />
-          <Text> </Text>
-          <Button key="mute" label={settings.chime ? '🔔' : '🔕'} hotkey="m" onPress={() => save($, 'chime', !settings.chime)} />
-          <Text> </Text>
-          <Button
-            key="configure"
-            label={isConfiguring ? '✓ Done' : '⚙ Configure'}
-            hotkey="c"
-            onPress={() => update($, configuring, open => !open)}
-          />
+        {/* The toolbar flows onto a second row in a narrow pane rather than splitting a button. */}
+        <Box flexDirection="column" marginBottom={1}>
+          {flow(toolbar, e.props.bodyColumns, ' ').map(row => (
+            <Box>{row.flatMap((chip, i) => (i === 0 ? [chip.node] : [<Text> </Text>, chip.node]))}</Box>
+          ))}
         </Box>
         {isConfiguring && (
           <Box flexDirection="column">
@@ -480,34 +492,47 @@ export const register: Register = (on, options) => {
         )}
         {!isConfiguring && error && <Text color="red">Refresh failed: {error}</Text>}
         {!isConfiguring && list.length <= 1 && !error && <Text dimColor>No other sessions running.</Text>}
-        {!isConfiguring && list.map((peer, index) => (
-          <Box flexDirection="column">
-            <Text color={peer.isSelf ? 'claude' : 'subtle'}>{'━'.repeat(Math.max(1, e.props.bodyColumns))}</Text>
-            <Box>
-              <Text color="claude">{peer.isSelf ? '▶ ' : '  '}</Text>
-              <Text>{DOT[peer.status] ?? '⚪'} </Text>
-              {peer.isSelf ? (
-                <Text bold color="claude">
-                  {index + 1}: {peer.isWorkroom ? '📁 ' : ''}{peer.name} <Text dimColor>(you)</Text>
-                </Text>
-              ) : (
-                <Button
-                  key={`jump-${peer.pid}`}
-                  label={peer.isWorkroom ? `📁 ${peer.name}` : peer.name}
-                  hotkey={index < 9 ? String(index + 1) : undefined}
-                  plain
-                  onPress={() => jump($, peer)}
-                />
-              )}
-              {peer.status === 'waiting' && <Text color="red"> {peer.waitingFor ?? 'needs you'}</Text>}
-              <Text dimColor>
-                {' '}· {age(now - peer.startedAt)} · {peer.folder}
-              </Text>
+        {!isConfiguring && list.map((peer, index) => {
+          // The arrow and dot take 5 cells. The name is clipped to what's left, and the age and
+          // folder stay on its line only when they fit; otherwise they lead the details row, so
+          // a narrow pane never squeezes them into a column a character or two wide.
+          const number = `${index + 1}: `
+          const you = peer.isSelf ? ' (you)' : ''
+          const waiting = peer.status === 'waiting' ? ` ${peer.waitingFor ?? 'needs you'}` : ''
+          const meta = `${age(now - peer.startedAt)} · ${peer.folder}`
+          const room = e.props.bodyColumns - 5
+          const name = clip(peer.isWorkroom ? `📁 ${peer.name}` : peer.name, Math.max(8, room - number.length - you.length))
+          const isMetaInline = number.length + cells(name) + you.length + cells(waiting) + cells(` · ${meta}`) <= room
+          const metaChip: Chip = { width: cells(meta), node: <Text dimColor>{meta}</Text> }
+          return (
+            <Box flexDirection="column">
+              <Text color={peer.isSelf ? 'claude' : 'subtle'}>{'━'.repeat(Math.max(1, e.props.bodyColumns))}</Text>
+              <Box>
+                <Box flexShrink={0}>
+                  <Text color="claude">{peer.isSelf ? '▶ ' : '  '}</Text>
+                  <Text>{DOT[peer.status] ?? '⚪'} </Text>
+                </Box>
+                {peer.isSelf ? (
+                  <Text bold color="claude">
+                    {number}{name} <Text dimColor>(you)</Text>
+                  </Text>
+                ) : (
+                  <Button
+                    key={`jump-${peer.pid}`}
+                    label={name}
+                    hotkey={index < 9 ? String(index + 1) : undefined}
+                    plain
+                    onPress={() => jump($, peer)}
+                  />
+                )}
+                {waiting && <Text color="red">{waiting}</Text>}
+                {isMetaInline && <Text dimColor> · {meta}</Text>}
+              </Box>
+              {peer.title && <Text>{peer.title}</Text>}
+              {lay(isMetaInline ? details(peer) : [metaChip, ...details(peer)], DETAIL_INDENT)}
             </Box>
-            {peer.title && <Text>{peer.title}</Text>}
-            {lay(details(peer), DETAIL_INDENT)}
-          </Box>
-        ))}
+          )
+        })}
       </Box>
     )
   })

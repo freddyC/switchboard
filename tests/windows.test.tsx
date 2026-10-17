@@ -6,9 +6,15 @@ const HOME = 'C:\\Users\\me'
 const slashed = (path: string) => path.replace(/\\/g, '/')
 
 const SESSIONS: Record<string, object> = {
-  'live.json': { pid: 100, sessionId: 'live', cwd: `${HOME}\\work\\workroom-abc`, startedAt: 1, name: 'live', nameSource: 'derived', status: 'idle', messagingSocketPath: '\\\\.\\pipe\\LOCAL\\cc-msg-1' },
+  'live.json': { pid: 100, sessionId: 'live', cwd: `${HOME}\\work\\workroom-abc`, startedAt: 0, name: 'live', nameSource: 'derived', status: 'idle', messagingSocketPath: '\\\\.\\pipe\\LOCAL\\cc-msg-1' },
   'gone.json': { pid: 200, sessionId: 'gone', cwd: `${HOME}\\work\\old`, startedAt: 2, name: 'gone', nameSource: 'derived', status: 'idle', messagingSocketPath: '\\\\.\\pipe\\LOCAL\\cc-msg-2' },
 }
+
+// A repo ending a sentence, and a github.com page that isn't a repo.
+const TRANSCRIPT = [
+  { type: 'ai-title', aiTitle: 'Fix the thing' },
+  { type: 'assistant', message: { content: [{ type: 'text', text: 'See github.com/freddyC/centipede. Then open github.com/pulls/review-requested' }] } },
+].map(entry => JSON.stringify(entry)).join('\n')
 
 test('on Windows it reads USERPROFILE, checks pids with tasklist, and opens wt and the default browser', async ($, on) => {
   const clock = mock.clock(on)
@@ -21,7 +27,7 @@ test('on Windows it reads USERPROFILE, checks pids with tasklist, and opens wt a
   on('fs.read', async (_, e) => {
     const session = SESSIONS[slashed(e.path).split('/').pop() ?? '']
     if (session) return { value: JSON.stringify(session) }
-    return { value: '{"type":"ai-title","aiTitle":"Fix the thing"}\n' }
+    return { value: TRANSCRIPT }
   })
   on('fs.stat', async (_, e) => {
     statted.push(slashed(e.path))
@@ -66,5 +72,34 @@ test('on Windows it reads USERPROFILE, checks pids with tasklist, and opens wt a
 
     await ui.press({ key: 'new-browser' })
     expect(runs).toContainEqual(['rundll32', 'url.dll,FileProtocolHandler', 'https://github.com/pulls/review-requested'])
+
+    expect(await ui.find({ key: 'repo-100-freddyC/centipede' })).toBeTruthy()
+    expect(await ui.find({ text: /centipede\.|pulls\/review/ })).toBeFalsy()
+
+    // Wide: the age and folder sit on the name's line.
+    expect(await ui.find({ text: /^ · 0m · workroom-abc$/ })).toBeTruthy()
+  }
+})
+
+test('in a narrow pane the age and folder move under the name instead of squeezing', async ($, on) => {
+  const clock = mock.clock(on)
+  mock.env(on, { OS: 'Windows_NT', USERPROFILE: HOME })
+  on('fs.list', async () => ({ value: [{ name: 'live.json', kind: 'file' as const, size: 1 }] }))
+  on('fs.read', async (_, e) => ({ value: slashed(e.path).endsWith('live.json') ? JSON.stringify(SESSIONS['live.json']) : TRANSCRIPT }))
+  on('fs.stat', async () => ({ value: { kind: 'file' as const, size: 50, mtimeMs: 1 } }))
+  on('process.run', async () => ({ value: { exitCode: 0, stdout: '"claude.exe","100","Console","1","90,000 K"\r\n', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }))
+  on('session.id', async () => ({ value: 'self' }))
+  on('session.start', async (_, e) => ({ cwd: e.cwd }))
+  on('command.register', async () => ({ value: {} }))
+  on('ui.open', async () => ({ value: { isPlaced: true } }))
+  on('ui.panes', async () => ({ value: [] }))
+  on('session.usage', async () => ({ value: { startedAt: 0, context: { window: 200_000 }, rateLimits: [] } }))
+  await $.session.start({ cwd: HOME, surface: 'terminal', isInteractive: true })
+  await clock.settle()
+
+  for (const surface of ['terminal', 'desktop'] as const) {
+    const ui = await $.ui.mount({ plugin: 'switchboard', surface, component: 'Pane', props: { ...PANE, bodyColumns: 30 }, requestId: 'switchboard' })
+    expect(await ui.find({ text: /^0m · workroom-abc$/ })).toBeTruthy()
+    expect(await ui.find({ text: /^ · 0m/ })).toBeFalsy()
   }
 })
