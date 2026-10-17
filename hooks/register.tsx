@@ -9,6 +9,9 @@ const window = atom({ plugin: 'switchboard', key: 'window' } as const, 200_000)
 const failure = atom({ plugin: 'switchboard', key: 'error' } as const, '')
 const configuring = atom({ plugin: 'switchboard', key: 'configuring' } as const, false)
 const configError = atom({ plugin: 'switchboard', key: 'configError' } as const, '')
+// Pids of sessions that finished (busy → idle) since you last went to them. Jumping to one
+// from the pane, or the session going busy again, clears it.
+const unseen = atom({ plugin: 'switchboard', key: 'unseen' } as const, [])
 
 const DEFAULTS: Settings = {
   chime: true,
@@ -309,6 +312,12 @@ async function refresh($: EngineInterface, settings: Settings) {
   lastStatus.clear()
   for (const row of rows) lastStatus.set(row.pid, row.status)
   if (settings.chime && isBellOwner && finished.length > 0) void play($, settings.sound)
+  await update($, unseen, previous => {
+    // Keep a mark while its session is still open, still another session, and not busy again.
+    const kept = previous.filter(pid => rows.some(row => row.pid === pid && !row.isSelf && row.status !== 'busy'))
+    const next = [...new Set([...kept, ...finished.map(row => row.pid)])]
+    return next.length === previous.length && next.every(pid => previous.includes(pid)) ? previous : next
+  })
   await retitle($, rows.length)
   await update($, peers, previous => (JSON.stringify(previous) === JSON.stringify(rows) ? previous : rows))
 }
@@ -355,6 +364,7 @@ const SELECT_WT_TAB = [
 ].join('\n')
 
 async function jump($: EngineInterface, peer: Peer) {
+  await update($, unseen, previous => (previous.includes(peer.pid) ? previous.filter(pid => pid !== peer.pid) : previous))
   if (await isWindows($)) {
     const found = await $.process.run(['powershell.exe', '-NoProfile', '-NonInteractive', '-Command', SELECT_WT_TAB], {
       env: { SWITCHBOARD_TABS: peer.tabTitles.join('\n') },
@@ -465,6 +475,7 @@ export const register: Register = (on, options) => {
     if (e.surface === 'mobile') return next(e)
     const { Box, Button, Input, Text } = $.ui.resolve(e)
     const list = await read($, peers)
+    const unseenPids = await read($, unseen)
     const isConfiguring = await read($, configuring)
     const settingsError = await read($, configError)
     const size = await read($, window)
@@ -607,7 +618,8 @@ export const register: Register = (on, options) => {
           const number = `${index + 1}: `
           const you = peer.isSelf ? ' (you)' : ''
           const waiting = peer.status === 'waiting' ? ` ${peer.waitingFor ?? 'needs you'}` : ''
-          const room = e.props.bodyColumns - 5
+          const bell = unseenPids.includes(peer.pid) ? '🔔 ' : ''
+          const room = e.props.bodyColumns - 5 - cells(bell)
           const name = clip(peer.isWorkroom ? `📁 ${peer.name}` : peer.name, Math.max(8, room - number.length - you.length - cells(waiting)))
           const metaRoom = room - number.length - cells(name) - you.length - cells(waiting) - 3
           const meta = metaRoom >= 4 ? clip(`${age(now - peer.startedAt)} · ${peer.folder}`, metaRoom) : ''
@@ -618,6 +630,7 @@ export const register: Register = (on, options) => {
                 <Box flexShrink={0}>
                   <Text color="claude">{peer.isSelf ? '▶ ' : '  '}</Text>
                   <Text>{DOT[peer.status] ?? '⚪'} </Text>
+                  {bell && <Text>{bell}</Text>}
                 </Box>
                 {peer.isSelf ? (
                   <Text bold color="claude">

@@ -2,11 +2,13 @@
 
 A Claude Code side pane that lists your other local Claude sessions: status dot, title, context meter, repos, tickets and PR. Click a session to jump to it, or open a new terminal or browser from the buttons at the top.
 
+A 🔔 beside a session means it finished (went from busy to idle) and you haven't been back since. Jumping to it from the pane clears the bell, and so does the session going busy again because you typed in it.
+
 ## Requirements
 
 - macOS: jumping to a session and **＋ New terminal** drive Terminal.app through AppleScript, so they only work for sessions running in Terminal.app; the first press asks for permission to control Terminal.
 - **＋ New browser** opens the page in [Ghostty](https://ghostty.org) with `terminal-browser` when both are installed, and in your default browser otherwise.
-- Windows: **＋ New terminal** opens a [Windows Terminal](https://aka.ms/terminal) tab running `claude`, and **＋ New browser** and links use your default browser. Jumping to a session finds its tab by title through UI Automation (Windows Terminal titles each tab after the session) and brings that window forward.
+- Windows: **＋ New terminal** opens a [Windows Terminal](https://aka.ms/terminal) tab running `claude`, and **＋ New browser** and links use your default browser. The chime plays through .NET's `SoundPlayer`. Jumping to a session finds its tab by title through UI Automation (Windows Terminal titles each tab after the session) and brings that window forward.
 - The session list, status, context meter, chime and settings work in any terminal.
 
 ## Install

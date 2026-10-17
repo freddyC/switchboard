@@ -32,6 +32,6 @@ export type Settings = {
 
 declare module 'claude-code' {
   interface PluginState {
-    'switchboard': { peers: Peer[]; window: number; error: string; configuring: boolean; configError: string }
+    'switchboard': { peers: Peer[]; window: number; error: string; configuring: boolean; configError: string; unseen: number[] }
   }
 }
