@@ -6,7 +6,7 @@ A Claude Code side pane that lists your other local Claude sessions: status dot,
 
 - macOS: jumping to a session and **＋ New terminal** drive Terminal.app through AppleScript, so they only work for sessions running in Terminal.app; the first press asks for permission to control Terminal.
 - **＋ New browser** opens the page in [Ghostty](https://ghostty.org) with `terminal-browser` when both are installed, and in your default browser otherwise.
-- Windows: **＋ New terminal** opens a [Windows Terminal](https://aka.ms/terminal) tab running `claude`, and **＋ New browser** and links use your default browser. Jumping to a session isn't supported, because Windows Terminal can't select another tab from outside; pressing one says which folder it's in.
+- Windows: **＋ New terminal** opens a [Windows Terminal](https://aka.ms/terminal) tab running `claude`, and **＋ New browser** and links use your default browser. Jumping to a session finds its tab by title through UI Automation (Windows Terminal titles each tab after the session) and brings that window forward.
 - The session list, status, context meter, chime and settings work in any terminal.
 
 ## Install

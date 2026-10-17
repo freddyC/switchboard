@@ -84,7 +84,13 @@ const meter = (percent: number, glyphs: { full: string; empty: string }) => {
 
 const contextColor = (percent: number) => (percent >= 80 ? 'red' : percent >= 60 ? 'yellow' : 'green')
 
-type Summary = { mtimeMs: number; title: string; pr?: string; tokens?: number; repos: string[]; tickets: string[] }
+type Summary = { mtimeMs: number; readAt: number; title: string; pr?: string; tokens?: number; repos: string[]; tickets: string[] }
+
+// Long sessions pass 4 MB of transcript, and $.fs.read takes the whole file. Past that size
+// a changed transcript is re-read at most every BIG_REREAD_MS, keeping the last summary between.
+const BIG_TRANSCRIPT = 4 * 1024 * 1024
+const MAX_TRANSCRIPT = 64 * 1024 * 1024
+const BIG_REREAD_MS = 30_000
 
 const TICKET = /\b[A-Z]{2,10}-\d{1,6}\b/g
 const NOT_TICKETS = new Set(['UTF', 'SHA', 'ISO', 'RFC', 'GPT', 'AES', 'TLS', 'HTTP', 'UTC', 'GMT'])
@@ -213,6 +219,7 @@ async function refresh($: EngineInterface, settings: Settings) {
   const files = (await $.fs.list(dir)).filter(entry => entry.name.endsWith('.json'))
   const rows: Peer[] = []
   const alive = (await isWindows($)) ? await livePids($) : undefined
+  const now = await $.clock.now()
 
   for (const file of files) {
     const session: SessionFile = JSON.parse(await $.fs.read(`${dir}/${file.name}`).catch(() => '{}'))
@@ -224,8 +231,9 @@ async function refresh($: EngineInterface, settings: Settings) {
     const transcriptPath = `${home}/.claude/projects/${projectDir(session.cwd)}/${session.sessionId}.jsonl`
     const stat = await $.fs.stat(transcriptPath).catch(() => undefined)
     let summary = summaries.get(session.sessionId)
-    if (stat && stat.size < 4 * 1024 * 1024 && summary?.mtimeMs !== stat.mtimeMs) {
-      summary = { mtimeMs: stat.mtimeMs, ...summarize(await $.fs.read(transcriptPath)) }
+    const isChanged = stat && stat.size < MAX_TRANSCRIPT && summary?.mtimeMs !== stat.mtimeMs
+    if (isChanged && (!summary || stat.size < BIG_TRANSCRIPT || now - summary.readAt >= BIG_REREAD_MS)) {
+      summary = { mtimeMs: stat.mtimeMs, readAt: now, ...summarize(await $.fs.read(transcriptPath)) }
       summaries.set(session.sessionId, summary)
     }
 
@@ -247,6 +255,7 @@ async function refresh($: EngineInterface, settings: Settings) {
       tokens: summary?.tokens,
       repos: summary?.repos ?? [],
       tickets: summary?.tickets ?? [],
+      tabTitles: [title, session.name].filter(Boolean),
     })
   }
 
@@ -282,8 +291,37 @@ const SELECT_TAB = [
   'end run',
 ]
 
+// Windows Terminal titles each tab "<status glyph> <session title>". UI Automation finds the tab
+// whose title is, or ends with, one of SWITCHBOARD_TABS, selects it and brings its window
+// forward. Single quotes only: PowerShell 5.1 loses double quotes in a -Command argument.
+const SELECT_WT_TAB = [
+  'Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes',
+  '$A = [System.Windows.Automation.AutomationElement]',
+  '$S = [System.Windows.Automation.TreeScope]',
+  "$wanted = $env:SWITCHBOARD_TABS -split '\\r?\\n' | Where-Object { $_ }",
+  "$windows = $A::RootElement.FindAll($S::Children, (New-Object System.Windows.Automation.PropertyCondition($A::ClassNameProperty, 'CASCADIA_HOSTING_WINDOW_CLASS')))",
+  'foreach ($window in $windows) {',
+  '  $tabs = $window.FindAll($S::Descendants, (New-Object System.Windows.Automation.PropertyCondition($A::ControlTypeProperty, [System.Windows.Automation.ControlType]::TabItem)))',
+  '  foreach ($tab in $tabs) {',
+  '    $name = $tab.Current.Name',
+  "    if (-not ($wanted | Where-Object { $name -eq $_ -or $name.EndsWith(' ' + $_) })) { continue }",
+  '    $tab.GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern).Select()',
+  '    [void](New-Object -ComObject WScript.Shell).AppActivate($window.Current.Name)',
+  "    'ok'",
+  '    exit',
+  '  }',
+  '}',
+  "'missing'",
+].join('\n')
+
 async function jump($: EngineInterface, peer: Peer) {
-  if (await isWindows($)) return $.ui.toast(`Jumping to a tab isn't supported on Windows; ${peer.name} is in ${peer.folder}`)
+  if (await isWindows($)) {
+    const found = await $.process.run(['powershell.exe', '-NoProfile', '-NonInteractive', '-Command', SELECT_WT_TAB], {
+      env: { SWITCHBOARD_TABS: peer.tabTitles.join('\n') },
+    })
+    if (found.stdout.trim() !== 'ok') $.ui.toast(`No Windows Terminal tab found for ${peer.name}`)
+    return
+  }
   const ps = await $.process.run(['ps', '-o', 'tty=', '-p', String(peer.pid)])
   const tty = ps.stdout.trim()
   if (!tty || tty === '??') return $.ui.toast(`${peer.name} has no terminal tab`)

@@ -12,6 +12,8 @@ export type Peer = {
   tokens?: number
   repos: string[]
   tickets: string[]
+  /** What the session's terminal tab may be titled: its AI title and its name. */
+  tabTitles: string[]
 }
 
 export type Settings = {

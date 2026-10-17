@@ -34,12 +34,20 @@ test('on Windows it reads USERPROFILE, checks pids with tasklist, and opens wt a
   })
   on('fs.stat', async (_, e) => {
     statted.push(slashed(e.path))
-    return { value: { kind: 'file' as const, size: 50, mtimeMs: 1 } }
+    // Past the 4 MB the pane used to skip, which left a long session with no details.
+    return { value: { kind: 'file' as const, size: 5 * 1024 * 1024, mtimeMs: 1 } }
   })
   on('fs.exists', async () => ({ value: false }))
+  let tabExists = true
+  const tabsAsked: string[] = []
   on('process.run', async (_, e) => {
     runs.push([...e.argv])
-    const stdout = e.argv[0] === 'tasklist' ? '"claude.exe","100","Console","1","90,000 K"\r\n' : ''
+    let stdout = ''
+    if (e.argv[0] === 'tasklist') stdout = '"claude.exe","100","Console","1","90,000 K"\r\n'
+    if (e.argv[0] === 'powershell.exe') {
+      tabsAsked.push(e.init?.env?.SWITCHBOARD_TABS ?? '')
+      stdout = tabExists ? 'ok\r\n' : 'missing\r\n'
+    }
     return { value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
   })
   on('session.id', async () => ({ value: 'self' }))
@@ -64,11 +72,18 @@ test('on Windows it reads USERPROFILE, checks pids with tasklist, and opens wt a
     const ui = await $.ui.mount({ plugin: 'switchboard', surface, component: 'Pane', props: PANE, requestId: 'switchboard' })
 
     expect(await ui.find({ text: /abc/ })).toBeTruthy()
+    expect(await ui.find({ text: 'Fix the thing' })).toBeTruthy()
     expect(await ui.find({ text: /gone/ })).toBeFalsy()
     expect(statted).toContain('C:/Users/me/.claude/projects/C--Users-me-work-workroom-abc/live.jsonl')
 
+    // Jump asks UI Automation for a tab titled with the session's AI title or its name.
+    tabExists = true
     await ui.press({ key: 'jump-100' })
-    expect(toasts.at(-1)).toContain("isn't supported on Windows")
+    expect(tabsAsked.at(-1)).toBe('Fix the thing\nlive')
+    expect(toasts).toEqual([])
+    tabExists = false
+    await ui.press({ key: 'jump-100' })
+    expect(toasts.at(-1)).toContain('No Windows Terminal tab found')
 
     await ui.press({ key: 'new-terminal' })
     expect(runs).toContainEqual(['wt.exe', '-w', '0', 'new-tab', '-d', `${HOME}\\work`, 'claude'])
