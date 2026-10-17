@@ -177,7 +177,22 @@ async function retitle($: EngineInterface, count: number) {
   await $.ui.open({ id: PANE, title })
 }
 
-const homeDir = async ($: EngineInterface) => (await $.env.get('HOME')) ?? ''
+// Windows sets USERPROFILE rather than HOME, and has no ps, osascript, open or sh.
+const isWindows = async ($: EngineInterface) => (await $.env.get('OS')) === 'Windows_NT'
+
+const homeDir = async ($: EngineInterface) => (await $.env.get('HOME')) ?? (await $.env.get('USERPROFILE')) ?? ''
+
+// Claude names a project's transcript folder after its cwd with every non-alphanumeric
+// character turned into a dash: /Users/me/repo -> -Users-me-repo, C:\Users\me -> C--Users-me.
+const projectDir = (cwd: string) => cwd.replace(/[^A-Za-z0-9]/g, '-')
+const pathParts = (path: string) => path.split(/[\\/]/)
+
+// A Windows session's messagingSocketPath is a named pipe, which the fs calls can't see,
+// so liveness there is the session's pid in one tasklist snapshot.
+async function livePids($: EngineInterface) {
+  const { stdout } = await $.process.run(['tasklist', '/FO', 'CSV', '/NH'])
+  return new Set([...stdout.matchAll(/^"[^"]*","(\d+)"/gm)].map(match => Number(match[1])))
+}
 
 async function refresh($: EngineInterface, settings: Settings) {
   const home = await homeDir($)
@@ -185,13 +200,16 @@ async function refresh($: EngineInterface, settings: Settings) {
   const dir = `${home}/.claude/sessions`
   const files = (await $.fs.list(dir)).filter(entry => entry.name.endsWith('.json'))
   const rows: Peer[] = []
+  const alive = (await isWindows($)) ? await livePids($) : undefined
 
   for (const file of files) {
     const session: SessionFile = JSON.parse(await $.fs.read(`${dir}/${file.name}`).catch(() => '{}'))
     if (!session.sessionId) continue
-    if (session.messagingSocketPath && !(await $.fs.exists(session.messagingSocketPath))) continue
+    if (alive) {
+      if (!alive.has(session.pid)) continue
+    } else if (session.messagingSocketPath && !(await $.fs.exists(session.messagingSocketPath))) continue
 
-    const transcriptPath = `${home}/.claude/projects/${session.cwd.replace(/[/.]/g, '-')}/${session.sessionId}.jsonl`
+    const transcriptPath = `${home}/.claude/projects/${projectDir(session.cwd)}/${session.sessionId}.jsonl`
     const stat = await $.fs.stat(transcriptPath).catch(() => undefined)
     let summary = summaries.get(session.sessionId)
     if (stat && stat.size < 4 * 1024 * 1024 && summary?.mtimeMs !== stat.mtimeMs) {
@@ -201,7 +219,7 @@ async function refresh($: EngineInterface, settings: Settings) {
 
     const title = summary && summary.title !== NO_TITLE ? summary.title : ''
     const isNamedByUser = session.nameSource !== 'derived'
-    const workroom = settings.workroomNames ? session.cwd.split('/').find(part => part.startsWith('workroom-')) : undefined
+    const workroom = settings.workroomNames ? pathParts(session.cwd).find(part => part.startsWith('workroom-')) : undefined
     const name = workroom ? workroom.slice('workroom-'.length) : isNamedByUser || !title ? session.name : clip(title, settings.titleLength)
     rows.push({
       pid: session.pid,
@@ -211,7 +229,7 @@ async function refresh($: EngineInterface, settings: Settings) {
       status: session.status,
       waitingFor: session.waitingFor,
       startedAt: session.startedAt,
-      folder: session.cwd.split('/').pop() ?? session.cwd,
+      folder: pathParts(session.cwd).pop() ?? session.cwd,
       title: workroom || isNamedByUser ? title : '',
       pr: summary?.pr,
       tokens: summary?.tokens,
@@ -253,6 +271,7 @@ const SELECT_TAB = [
 ]
 
 async function jump($: EngineInterface, peer: Peer) {
+  if (await isWindows($)) return $.ui.toast(`Jumping to a tab isn't supported on Windows; ${peer.name} is in ${peer.folder}`)
   const ps = await $.process.run(['ps', '-o', 'tty=', '-p', String(peer.pid)])
   const tty = ps.stdout.trim()
   if (!tty || tty === '??') return $.ui.toast(`${peer.name} has no terminal tab`)
@@ -298,6 +317,12 @@ async function ownTty($: EngineInterface) {
 }
 
 async function openTerminal($: EngineInterface) {
+  if (await isWindows($)) {
+    // -w 0 opens the tab in the most recent Windows Terminal window.
+    const opened = await $.process.run(['wt.exe', '-w', '0', 'new-tab', '-d', await $.session.cwd(), 'claude'])
+    if (opened.exitCode !== 0) $.ui.toast(`Could not open Windows Terminal: ${opened.stderr.trim()}`)
+    return
+  }
   const { stdout } = await $.process.run(['pwd'])
   const script = NEW_TAB.flatMap(line => ['-e', line])
   const opened = await $.process.run(['osascript', ...script, stdout.trim(), await ownTty($)])
@@ -307,6 +332,7 @@ async function openTerminal($: EngineInterface) {
 }
 
 async function openBrowser($: EngineInterface, url: string) {
+  if (await isWindows($)) return openUrl($, url)
   const found = await $.process.run(['sh', '-lc', 'command -v terminal-browser'])
   const terminalBrowser = found.stdout.trim()
   if (found.exitCode === 0 && terminalBrowser) {
@@ -318,7 +344,9 @@ async function openBrowser($: EngineInterface, url: string) {
 }
 
 async function openUrl($: EngineInterface, url: string) {
-  await $.process.run(['open', url])
+  // rundll32 hands the URL to the default browser without a shell to quote for.
+  if (await isWindows($)) await $.process.run(['rundll32', 'url.dll,FileProtocolHandler', url])
+  else await $.process.run(['open', url])
 }
 
 export const register: Register = (on, options) => {
