@@ -86,11 +86,38 @@ const contextColor = (percent: number) => (percent >= 80 ? 'red' : percent >= 60
 
 type Summary = { mtimeMs: number; readAt: number; title: string; pr?: string; tokens?: number; repos: string[]; tickets: string[] }
 
-// Long sessions pass 4 MB of transcript, and $.fs.read takes the whole file. Past that size
-// a changed transcript is re-read at most every BIG_REREAD_MS, keeping the last summary between.
-const BIG_TRANSCRIPT = 4 * 1024 * 1024
-const MAX_TRANSCRIPT = 64 * 1024 * 1024
+// $.fs.read refuses files past 4 MB, and long sessions pass that. A bigger transcript is read
+// from its last TAIL_BYTES through a process (its stdout holds 4 MB too), at most every
+// BIG_REREAD_MS. ai-title entries recur every 100 KB or so, so the tail always has one; the
+// first, cut line fails to parse and is skipped.
+const FS_READ_LIMIT = 4 * 1024 * 1024
+const TAIL_BYTES = 3 * 1024 * 1024
 const BIG_REREAD_MS = 30_000
+
+// Single quotes only: PowerShell 5.1 loses double quotes in a -Command argument.
+const TAIL_FILE = [
+  "$f = [System.IO.File]::Open($env:SWITCHBOARD_FILE, 'Open', 'Read', 'ReadWrite')",
+  '$n = [int][Math]::Min($f.Length, [int64]$env:SWITCHBOARD_BYTES)',
+  "[void]$f.Seek(-$n, 'End')",
+  '$b = New-Object byte[] $n',
+  '$read = 0',
+  'while ($read -lt $n) { $r = $f.Read($b, $read, $n - $read); if ($r -le 0) { break }; $read += $r }',
+  '$f.Close()',
+  '$out = [Console]::OpenStandardOutput()',
+  '$out.Write($b, 0, $read)',
+  '$out.Flush()',
+].join('\n')
+
+async function readTranscript($: EngineInterface, path: string, size: number, onWindows: boolean) {
+  if (size < FS_READ_LIMIT) return $.fs.read(path)
+  const tail = onWindows
+    ? await $.process.run(['powershell.exe', '-NoProfile', '-NonInteractive', '-Command', TAIL_FILE], {
+        env: { SWITCHBOARD_FILE: path, SWITCHBOARD_BYTES: String(TAIL_BYTES) },
+      })
+    : await $.process.run(['tail', '-c', String(TAIL_BYTES), path])
+  if (tail.exitCode !== 0) throw new Error(`could not read the end of ${path}: ${tail.stderr.trim()}`)
+  return tail.stdout
+}
 
 const TICKET = /\b[A-Z]{2,10}-\d{1,6}\b/g
 const NOT_TICKETS = new Set(['UTF', 'SHA', 'ISO', 'RFC', 'GPT', 'AES', 'TLS', 'HTTP', 'UTC', 'GMT'])
@@ -218,7 +245,8 @@ async function refresh($: EngineInterface, settings: Settings) {
   const dir = `${home}/.claude/sessions`
   const files = (await $.fs.list(dir)).filter(entry => entry.name.endsWith('.json'))
   const rows: Peer[] = []
-  const alive = (await isWindows($)) ? await livePids($) : undefined
+  const onWindows = await isWindows($)
+  const alive = onWindows ? await livePids($) : undefined
   const now = await $.clock.now()
 
   for (const file of files) {
@@ -231,10 +259,16 @@ async function refresh($: EngineInterface, settings: Settings) {
     const transcriptPath = `${home}/.claude/projects/${projectDir(session.cwd)}/${session.sessionId}.jsonl`
     const stat = await $.fs.stat(transcriptPath).catch(() => undefined)
     let summary = summaries.get(session.sessionId)
-    const isChanged = stat && stat.size < MAX_TRANSCRIPT && summary?.mtimeMs !== stat.mtimeMs
-    if (isChanged && (!summary || stat.size < BIG_TRANSCRIPT || now - summary.readAt >= BIG_REREAD_MS)) {
-      summary = { mtimeMs: stat.mtimeMs, readAt: now, ...summarize(await $.fs.read(transcriptPath)) }
-      summaries.set(session.sessionId, summary)
+    const isChanged = stat && summary?.mtimeMs !== stat.mtimeMs
+    if (isChanged && (!summary || stat.size < FS_READ_LIMIT || now - summary.readAt >= BIG_REREAD_MS)) {
+      // One transcript that can't be read keeps its last summary rather than failing the pane.
+      const text = await readTranscript($, transcriptPath, stat.size, onWindows).catch(() => undefined)
+      if (text !== undefined) {
+        const fresh = summarize(text)
+        // A tail can start after the session's pr-link entry, so keep the PR already known.
+        summary = { mtimeMs: stat.mtimeMs, readAt: now, ...fresh, pr: fresh.pr ?? summary?.pr }
+        summaries.set(session.sessionId, summary)
+      }
     }
 
     const title = summary && summary.title !== NO_TITLE ? summary.title : ''

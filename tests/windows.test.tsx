@@ -30,7 +30,8 @@ test('on Windows it reads USERPROFILE, checks pids with tasklist, and opens wt a
   on('fs.read', async (_, e) => {
     const session = SESSIONS[slashed(e.path).split('/').pop() ?? '']
     if (session) return { value: JSON.stringify(session) }
-    return { value: TRANSCRIPT }
+    // As the engine does for the 5 MB transcript fs.stat reports below.
+    return { deny: `${e.path} refused: the file is over the 4194304-byte limit` }
   })
   on('fs.stat', async (_, e) => {
     statted.push(slashed(e.path))
@@ -44,8 +45,14 @@ test('on Windows it reads USERPROFILE, checks pids with tasklist, and opens wt a
     runs.push([...e.argv])
     let stdout = ''
     if (e.argv[0] === 'tasklist') stdout = '"claude.exe","100","Console","1","90,000 K"\r\n'
-    if (e.argv[0] === 'powershell.exe') {
-      tabsAsked.push(e.init?.env?.SWITCHBOARD_TABS ?? '')
+    const env = e.init?.env ?? {}
+    if (e.argv[0] === 'powershell.exe' && env.SWITCHBOARD_FILE) {
+      // The tail read of a big transcript: it starts mid-line, as a real tail does.
+      expect(slashed(env.SWITCHBOARD_FILE)).toBe('C:/Users/me/.claude/projects/C--Users-me-work-workroom-abc/live.jsonl')
+      stdout = `ut":1}\n${TRANSCRIPT}`
+    }
+    if (e.argv[0] === 'powershell.exe' && env.SWITCHBOARD_TABS) {
+      tabsAsked.push(env.SWITCHBOARD_TABS)
       stdout = tabExists ? 'ok\r\n' : 'missing\r\n'
     }
     return { value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
