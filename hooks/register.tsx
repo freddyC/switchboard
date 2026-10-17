@@ -92,7 +92,9 @@ const NOT_TICKETS = new Set(['UTF', 'SHA', 'ISO', 'RFC', 'GPT', 'AES', 'TLS', 'H
 const NOT_OWNERS = new Set(['pulls', 'issues', 'orgs', 'settings', 'notifications', 'login', 'search', 'marketplace', 'features', 'sponsors', 'topics', 'apps'])
 const REPO = /github\.com[/:]([A-Za-z0-9-]+\/[A-Za-z0-9._-]+?)(?:\.git)?(?=[/\s"')#?]|$)|--repo[ =]([A-Za-z0-9-]+\/[A-Za-z0-9._-]+)/g
 
-type Chip = { width: number; node: RenderElement }
+// `gap` overrides the space before a chip that shares a row, so the repos (or tickets)
+// of one group sit a space apart while separate groups keep the wider GAP.
+type Chip = { width: number; node: RenderElement; gap?: string }
 
 const GAP = '   '
 const DETAIL_INDENT = 6
@@ -106,9 +108,10 @@ const flow = (chips: Chip[], width: number, gap = GAP) => {
   let used = 0
   for (const chip of chips) {
     const last = rows.at(-1)
-    if (last && used + gap.length + chip.width <= width) {
+    const before = (chip.gap ?? gap).length
+    if (last && used + before + chip.width <= width) {
       last.push(chip)
-      used += gap.length + chip.width
+      used += before + chip.width
     } else {
       rows.push([chip])
       used = chip.width
@@ -390,8 +393,35 @@ export const register: Register = (on, options) => {
     const now = await $.clock.now()
     const error = await read($, failure)
 
+    // Chips never shrink: one the measure got wrong runs off the edge rather than being
+    // squeezed into a column a character wide.
     const lay = (chips: Chip[], indent = 0) =>
-      flow(chips, e.props.bodyColumns - indent).map(row => <Box paddingLeft={indent}>{row.flatMap((chip, i) => (i === 0 ? [chip.node] : [<Text>{GAP}</Text>, chip.node]))}</Box>)
+      flow(chips, e.props.bodyColumns - indent).map(row => (
+        <Box paddingLeft={indent}>
+          {row.flatMap((chip, i) => {
+            const node = <Box flexShrink={0}>{chip.node}</Box>
+            return i === 0 ? [node] : [<Text>{chip.gap ?? GAP}</Text>, node]
+          })}
+        </Box>
+      ))
+
+    // One chip per repo or ticket, so a long list wraps between them; the first carries the icon.
+    const detailWidth = e.props.bodyColumns - DETAIL_INDENT
+    const group = (icon: string, items: string[], item: (label: string, value: string) => RenderElement): Chip[] =>
+      items.map((value, i) => {
+        const prefix = i === 0 ? `${icon} ` : ''
+        const label = clip(value, Math.max(4, detailWidth - cells(prefix)))
+        return {
+          width: cells(prefix + label),
+          gap: i === 0 ? undefined : ' ',
+          node: (
+            <Box>
+              {prefix && <Text dimColor>{prefix}</Text>}
+              {item(label, value)}
+            </Box>
+          ),
+        }
+      })
 
     const details = (peer: Peer): Chip[] => {
       const chips: Chip[] = []
@@ -409,37 +439,21 @@ export const register: Register = (on, options) => {
           ),
         })
       }
-      if (settings.showPr && peer.pr) chips.push({ width: cells(`⎇ ${peer.pr}`), node: <Text dimColor>⎇ {peer.pr}</Text> })
-      if (settings.showRepos && peer.repos.length > 0) {
-        chips.push({
-          width: cells(`📦 ${peer.repos.join(' ')}`),
-          node: (
-            <Box>
-              <Text dimColor>📦 </Text>
-              {peer.repos.map((repo, i) => (
-                <Button key={`repo-${peer.pid}-${repo}`} label={i === 0 ? repo : ` ${repo}`} plain dimColor onPress={() => openUrl($, `https://github.com/${repo}`)} />
-              ))}
-            </Box>
-          ),
-        })
+      if (settings.showPr && peer.pr) {
+        const pr = clip(`⎇ ${peer.pr}`, detailWidth)
+        chips.push({ width: cells(pr), node: <Text dimColor>{pr}</Text> })
       }
-      if (settings.showTickets && peer.tickets.length > 0) {
-        chips.push({
-          width: cells(`🎫 ${peer.tickets.join(' ')}`),
-          node: (
-            <Box>
-              <Text dimColor>🎫 </Text>
-              {peer.tickets.map((ticket, i) => {
-                const label = i === 0 ? ticket : ` ${ticket}`
-                return settings.ticketUrl ? (
-                  <Button key={`ticket-${peer.pid}-${ticket}`} label={label} plain dimColor onPress={() => openUrl($, `${settings.ticketUrl}${ticket}`)} />
-                ) : (
-                  <Text key={`ticket-${peer.pid}-${ticket}`} dimColor>{label}</Text>
-                )
-              })}
-            </Box>
-          ),
-        })
+      if (settings.showRepos) {
+        chips.push(...group('📦', peer.repos, (label, repo) => (
+          <Button key={`repo-${peer.pid}-${repo}`} label={label} plain dimColor onPress={() => openUrl($, `https://github.com/${repo}`)} />
+        )))
+      }
+      if (settings.showTickets) {
+        chips.push(...group('🎫', peer.tickets, (label, ticket) => settings.ticketUrl ? (
+          <Button key={`ticket-${peer.pid}-${ticket}`} label={label} plain dimColor onPress={() => openUrl($, `${settings.ticketUrl}${ticket}`)} />
+        ) : (
+          <Text key={`ticket-${peer.pid}-${ticket}`} dimColor>{label}</Text>
+        )))
       }
       return chips
     }

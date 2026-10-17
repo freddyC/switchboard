@@ -16,6 +16,9 @@ const TRANSCRIPT = [
   { type: 'assistant', message: { content: [{ type: 'text', text: 'See github.com/freddyC/centipede. Then open github.com/pulls/review-requested' }] } },
 ].map(entry => JSON.stringify(entry)).join('\n')
 
+const REPOS = ['freddyC/workroom', 'freddyC/switchboard', 'freddyC/centipede']
+const MANY_REPOS = JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text: REPOS.map(repo => `github.com/${repo}`).join(' ') }] } })
+
 test('on Windows it reads USERPROFILE, checks pids with tasklist, and opens wt and the default browser', async ($, on) => {
   const clock = mock.clock(on)
   mock.env(on, { OS: 'Windows_NT', USERPROFILE: HOME })
@@ -85,7 +88,7 @@ test('in a narrow pane the age and folder move under the name instead of squeezi
   const clock = mock.clock(on)
   mock.env(on, { OS: 'Windows_NT', USERPROFILE: HOME })
   on('fs.list', async () => ({ value: [{ name: 'live.json', kind: 'file' as const, size: 1 }] }))
-  on('fs.read', async (_, e) => ({ value: slashed(e.path).endsWith('live.json') ? JSON.stringify(SESSIONS['live.json']) : TRANSCRIPT }))
+  on('fs.read', async (_, e) => ({ value: slashed(e.path).endsWith('live.json') ? JSON.stringify(SESSIONS['live.json']) : MANY_REPOS }))
   on('fs.stat', async () => ({ value: { kind: 'file' as const, size: 50, mtimeMs: 1 } }))
   on('process.run', async () => ({ value: { exitCode: 0, stdout: '"claude.exe","100","Console","1","90,000 K"\r\n', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }))
   on('session.id', async () => ({ value: 'self' }))
@@ -98,8 +101,23 @@ test('in a narrow pane the age and folder move under the name instead of squeezi
   await clock.settle()
 
   for (const surface of ['terminal', 'desktop'] as const) {
-    const ui = await $.ui.mount({ plugin: 'switchboard', surface, component: 'Pane', props: { ...PANE, bodyColumns: 30 }, requestId: 'switchboard' })
-    expect(await ui.find({ text: /^0m · workroom-abc$/ })).toBeTruthy()
-    expect(await ui.find({ text: /^ · 0m/ })).toBeFalsy()
+    // The detail rows (indented Boxes), and which of them holds each repo's chip.
+    const repoRows = async (bodyColumns: number) => {
+      const ui = await $.ui.mount({ plugin: 'switchboard', surface, component: 'Pane', props: { ...PANE, bodyColumns }, requestId: 'switchboard' })
+      const rows = (await ui.findAll({ type: 'Box' })).filter(box => box.props.paddingLeft === 6).map(box => JSON.stringify(box.children))
+      const metaMoved = Boolean(await ui.find({ text: /^0m · workroom-abc$/ })) && !(await ui.find({ text: /^ · 0m/ }))
+      await ui.unmount()
+      return { metaMoved, rowOf: REPOS.map(repo => rows.findIndex(row => row.includes(`repo-100-${repo}`))) }
+    }
+
+    const narrow = await repoRows(30)
+    expect(narrow.metaMoved).toBe(true)
+    // 24 cells of detail width: each repo wraps onto its own row instead of one squeezed row.
+    expect(narrow.rowOf.every(row => row >= 0)).toBe(true)
+    expect(new Set(narrow.rowOf).size).toBe(REPOS.length)
+
+    const wide = await repoRows(80)
+    expect(wide.metaMoved).toBe(false)
+    expect(new Set(wide.rowOf).size).toBe(1)
   }
 })
