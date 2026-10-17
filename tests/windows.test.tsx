@@ -106,7 +106,7 @@ test('on Windows it reads USERPROFILE, checks pids with tasklist, and opens wt a
   }
 })
 
-test('in a narrow pane the age and folder move under the name instead of squeezing', async ($, on) => {
+test('in a narrow pane each line is cut short instead of wrapping or squeezing', async ($, on) => {
   const clock = mock.clock(on)
   mock.env(on, { OS: 'Windows_NT', USERPROFILE: HOME })
   on('fs.list', async () => ({ value: [{ name: 'live.json', kind: 'file' as const, size: 1 }] }))
@@ -123,23 +123,27 @@ test('in a narrow pane the age and folder move under the name instead of squeezi
   await clock.settle()
 
   for (const surface of ['terminal', 'desktop'] as const) {
-    // The detail rows (indented Boxes), and which of them holds each repo's chip.
-    const repoRows = async (bodyColumns: number) => {
+    // What a pane of this width shows: the header's age and folder, the detail rows (the
+    // indented Boxes), and which repos made it onto one.
+    const render = async (bodyColumns: number) => {
       const ui = await $.ui.mount({ plugin: 'switchboard', surface, component: 'Pane', props: { ...PANE, bodyColumns }, requestId: 'switchboard' })
+      const meta = (await ui.find({ text: /^ · 0m/ }))?.text
       const rows = (await ui.findAll({ type: 'Box' })).filter(box => box.props.paddingLeft === 6).map(box => JSON.stringify(box.children))
-      const metaMoved = Boolean(await ui.find({ text: /^0m · workroom-abc$/ })) && !(await ui.find({ text: /^ · 0m/ }))
       await ui.unmount()
-      return { metaMoved, rowOf: REPOS.map(repo => rows.findIndex(row => row.includes(`repo-100-${repo}`))) }
+      return { meta, rows, shown: REPOS.filter(repo => rows.some(row => row.includes(`repo-100-${repo}`))) }
     }
 
-    const narrow = await repoRows(30)
-    expect(narrow.metaMoved).toBe(true)
-    // 24 cells of detail width: each repo wraps onto its own row instead of one squeezed row.
-    expect(narrow.rowOf.every(row => row >= 0)).toBe(true)
-    expect(new Set(narrow.rowOf).size).toBe(REPOS.length)
+    // 30 columns: the header keeps its age and folder, cut to fit, and the repos line shows
+    // the one repo that fits, then "…", on a single row.
+    const narrow = await render(30)
+    expect(narrow.meta).toBe(' · 0m · workroo…')
+    expect(narrow.shown).toEqual(['freddyC/workroom'])
+    expect(narrow.rows).toHaveLength(1)
+    expect(narrow.rows[0]).toContain('…')
 
-    const wide = await repoRows(80)
-    expect(wide.metaMoved).toBe(false)
-    expect(new Set(wide.rowOf).size).toBe(1)
+    const wide = await render(80)
+    expect(wide.meta).toBe(' · 0m · workroom-abc')
+    expect(wide.shown).toEqual(REPOS)
+    expect(wide.rows[0]).not.toContain('…')
   }
 })

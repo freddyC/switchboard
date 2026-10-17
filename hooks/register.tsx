@@ -125,9 +125,7 @@ const NOT_TICKETS = new Set(['UTF', 'SHA', 'ISO', 'RFC', 'GPT', 'AES', 'TLS', 'H
 const NOT_OWNERS = new Set(['pulls', 'issues', 'orgs', 'settings', 'notifications', 'login', 'search', 'marketplace', 'features', 'sponsors', 'topics', 'apps'])
 const REPO = /github\.com[/:]([A-Za-z0-9-]+\/[A-Za-z0-9._-]+?)(?:\.git)?(?=[/\s"')#?]|$)|--repo[ =]([A-Za-z0-9-]+\/[A-Za-z0-9._-]+)/g
 
-// `gap` overrides the space before a chip that shares a row, so the repos (or tickets)
-// of one group sit a space apart while separate groups keep the wider GAP.
-type Chip = { width: number; node: RenderElement; gap?: string }
+type Chip = { width: number; node: RenderElement }
 
 const GAP = '   '
 const DETAIL_INDENT = 6
@@ -141,10 +139,9 @@ const flow = (chips: Chip[], width: number, gap = GAP) => {
   let used = 0
   for (const chip of chips) {
     const last = rows.at(-1)
-    const before = (chip.gap ?? gap).length
-    if (last && used + before + chip.width <= width) {
+    if (last && used + gap.length + chip.width <= width) {
       last.push(chip)
-      used += before + chip.width
+      used += gap.length + chip.width
     } else {
       rows.push([chip])
       used = chip.width
@@ -472,28 +469,44 @@ export const register: Register = (on, options) => {
         <Box paddingLeft={indent}>
           {row.flatMap((chip, i) => {
             const node = <Box flexShrink={0}>{chip.node}</Box>
-            return i === 0 ? [node] : [<Text>{chip.gap ?? GAP}</Text>, node]
+            return i === 0 ? [node] : [<Text>{GAP}</Text>, node]
           })}
         </Box>
       ))
 
-    // One chip per repo or ticket, so a long list wraps between them; the first carries the icon.
+    // A repo or ticket group is one line: the items that fit, then "…" for the rest.
     const detailWidth = e.props.bodyColumns - DETAIL_INDENT
-    const group = (icon: string, items: string[], item: (label: string, value: string) => RenderElement): Chip[] =>
-      items.map((value, i) => {
-        const prefix = i === 0 ? `${icon} ` : ''
-        const label = clip(value, Math.max(4, detailWidth - cells(prefix)))
-        return {
-          width: cells(prefix + label),
-          gap: i === 0 ? undefined : ' ',
-          node: (
-            <Box>
-              {prefix && <Text dimColor>{prefix}</Text>}
-              {item(label, value)}
-            </Box>
-          ),
+    const group = (icon: string, items: string[], item: (label: string, value: string) => RenderElement): Chip[] => {
+      if (items.length === 0) return []
+      const shown: [string, string][] = []
+      let width = cells(`${icon} `)
+      for (const [i, value] of items.entries()) {
+        const more = i < items.length - 1 ? 2 : 0 // room for " …" while items remain
+        const step = (shown.length > 0 ? 1 : 0) + cells(value)
+        if (width + step + more <= detailWidth) {
+          shown.push([value, value])
+          width += step
+          continue
         }
-      })
+        if (shown.length === 0) {
+          const label = clip(value, Math.max(4, detailWidth - width))
+          shown.push([label, value])
+          width += cells(label)
+        }
+        break
+      }
+      const isCut = shown.length < items.length
+      return [{
+        width: width + (isCut ? 2 : 0),
+        node: (
+          <Box>
+            <Text dimColor>{icon} </Text>
+            {shown.flatMap(([label, value], i) => (i === 0 ? [item(label, value)] : [<Text> </Text>, item(label, value)]))}
+            {isCut && <Text dimColor> …</Text>}
+          </Box>
+        ),
+      }]
+    }
 
     const details = (peer: Peer): Chip[] => {
       const chips: Chip[] = []
@@ -579,17 +592,16 @@ export const register: Register = (on, options) => {
         {!isConfiguring && error && <Text color="red">Refresh failed: {error}</Text>}
         {!isConfiguring && list.length <= 1 && !error && <Text dimColor>No other sessions running.</Text>}
         {!isConfiguring && list.map((peer, index) => {
-          // The arrow and dot take 5 cells. The name is clipped to what's left, and the age and
-          // folder stay on its line only when they fit; otherwise they lead the details row, so
-          // a narrow pane never squeezes them into a column a character or two wide.
+          // Every line is cut to the pane rather than wrapped. The arrow and dot take 5 cells; the
+          // name gets what's left, and the age and folder are cut to the room after it (dropped
+          // under 4 cells), so a narrow pane never squeezes them into a column.
           const number = `${index + 1}: `
           const you = peer.isSelf ? ' (you)' : ''
           const waiting = peer.status === 'waiting' ? ` ${peer.waitingFor ?? 'needs you'}` : ''
-          const meta = `${age(now - peer.startedAt)} · ${peer.folder}`
           const room = e.props.bodyColumns - 5
-          const name = clip(peer.isWorkroom ? `📁 ${peer.name}` : peer.name, Math.max(8, room - number.length - you.length))
-          const isMetaInline = number.length + cells(name) + you.length + cells(waiting) + cells(` · ${meta}`) <= room
-          const metaChip: Chip = { width: cells(meta), node: <Text dimColor>{meta}</Text> }
+          const name = clip(peer.isWorkroom ? `📁 ${peer.name}` : peer.name, Math.max(8, room - number.length - you.length - cells(waiting)))
+          const metaRoom = room - number.length - cells(name) - you.length - cells(waiting) - 3
+          const meta = metaRoom >= 4 ? clip(`${age(now - peer.startedAt)} · ${peer.folder}`, metaRoom) : ''
           return (
             <Box flexDirection="column">
               <Text color={peer.isSelf ? 'claude' : 'subtle'}>{'━'.repeat(Math.max(1, e.props.bodyColumns))}</Text>
@@ -612,10 +624,10 @@ export const register: Register = (on, options) => {
                   />
                 )}
                 {waiting && <Text color="red">{waiting}</Text>}
-                {isMetaInline && <Text dimColor> · {meta}</Text>}
+                {meta && <Text dimColor> · {meta}</Text>}
               </Box>
-              {peer.title && <Text>{peer.title}</Text>}
-              {lay(isMetaInline ? details(peer) : [metaChip, ...details(peer)], DETAIL_INDENT)}
+              {peer.title && <Text>{clip(peer.title, e.props.bodyColumns)}</Text>}
+              {lay(details(peer), DETAIL_INDENT)}
             </Box>
           )
         })}
