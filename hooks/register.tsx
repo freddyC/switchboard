@@ -196,7 +196,8 @@ const summarize = (transcript: string): Omit<Summary, 'mtimeMs'> => {
     try {
       const entry = JSON.parse(line)
       if (entry.type === 'ai-title') title = entry.aiTitle
-      if (entry.type === 'last-prompt') prompt = entry.lastPrompt
+      // A session that starts or resumes writes a last-prompt entry with no lastPrompt.
+      if (entry.type === 'last-prompt' && typeof entry.lastPrompt === 'string') prompt = entry.lastPrompt
       if (entry.type === 'pr-link') {
         pr = `${entry.prRepository}#${entry.prNumber}`
         tally(repos, entry.prRepository)
@@ -270,10 +271,9 @@ async function refresh($: EngineInterface, settings: Settings) {
     let summary = summaries.get(session.sessionId)
     const isChanged = stat && summary?.mtimeMs !== stat.mtimeMs
     if (isChanged && (!summary || stat.size < FS_READ_LIMIT || now - summary.readAt >= BIG_REREAD_MS)) {
-      // One transcript that can't be read keeps its last summary rather than failing the pane.
-      const text = await readTranscript($, transcriptPath, stat.size, onWindows).catch(() => undefined)
-      if (text !== undefined) {
-        const fresh = summarize(text)
+      // One transcript that can't be read or parsed keeps its last summary rather than failing the pane.
+      const fresh = await readTranscript($, transcriptPath, stat.size, onWindows).then(summarize).catch(() => undefined)
+      if (fresh !== undefined) {
         // A tail can start after the session's pr-link entry, so keep the PR already known.
         summary = { mtimeMs: stat.mtimeMs, readAt: now, ...fresh, pr: fresh.pr ?? summary?.pr }
         summaries.set(session.sessionId, summary)
