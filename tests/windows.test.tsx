@@ -2,6 +2,9 @@ import { expect, mock, test } from 'claude-code/testing'
 
 const PANE = { title: 'Switchboard', isFocused: true, bodyColumns: 60, placement: 'dock' } as const
 const HOME = 'C:\\Users\\me'
+// fs paths are resolved on the host, where C:\ is relative unless the host is Windows. Rooted
+// without a drive, the profile is absolute on every host and Windows puts its own drive in front.
+const PROFILE = '/Users/me'
 // The engine hands paths over with Windows separators, so compare them with slashes.
 const slashed = (path: string) => path.replace(/\\/g, '/')
 
@@ -21,12 +24,12 @@ const MANY_REPOS = JSON.stringify({ type: 'assistant', message: { content: [{ ty
 
 test('on Windows it reads USERPROFILE, checks pids with tasklist, and opens wt and the default browser', async ($, on) => {
   const clock = mock.clock(on)
-  mock.env(on, { OS: 'Windows_NT', USERPROFILE: HOME })
+  mock.env(on, { OS: 'Windows_NT', USERPROFILE: PROFILE })
   const runs: string[][] = []
   const statted: string[] = []
   const toasts: string[] = []
 
-  on('fs.list', async (_, e) => (slashed(e.path) === 'C:/Users/me/.claude/sessions' ? { value: Object.keys(SESSIONS).map(name => ({ name, kind: 'file' as const, size: 1 })) } : { deny: `ENOENT ${e.path}` }))
+  on('fs.list', async (_, e) => (slashed(e.path).endsWith('/Users/me/.claude/sessions') ? { value: Object.keys(SESSIONS).map(name => ({ name, kind: 'file' as const, size: 1 })) } : { deny: `ENOENT ${e.path}` }))
   on('fs.read', async (_, e) => {
     const session = SESSIONS[slashed(e.path).split('/').pop() ?? '']
     if (session) return { value: JSON.stringify(session) }
@@ -50,7 +53,7 @@ test('on Windows it reads USERPROFILE, checks pids with tasklist, and opens wt a
     const env = e.init?.env ?? {}
     if (e.argv[0] === 'powershell.exe' && env.SWITCHBOARD_FILE) {
       // The tail read of a big transcript: it starts mid-line, as a real tail does.
-      expect(slashed(env.SWITCHBOARD_FILE)).toBe('C:/Users/me/.claude/projects/C--Users-me-work-workroom-abc/live.jsonl')
+      expect(slashed(env.SWITCHBOARD_FILE)).toEndWith('/Users/me/.claude/projects/C--Users-me-work-workroom-abc/live.jsonl')
       stdout = `ut":1}\n${TRANSCRIPT}`
     }
     if (e.argv[0] === 'powershell.exe' && env.SWITCHBOARD_SOUND) soundsPlayed.push(slashed(env.SWITCHBOARD_SOUND))
@@ -84,7 +87,7 @@ test('on Windows it reads USERPROFILE, checks pids with tasklist, and opens wt a
     expect(await ui.find({ text: /abc/ })).toBeTruthy()
     expect(await ui.find({ text: 'Fix the thing' })).toBeTruthy()
     expect(await ui.find({ text: /gone/ })).toBeFalsy()
-    expect(statted).toContain('C:/Users/me/.claude/projects/C--Users-me-work-workroom-abc/live.jsonl')
+    expect(statted.some(path => path.endsWith('/Users/me/.claude/projects/C--Users-me-work-workroom-abc/live.jsonl'))).toBe(true)
 
     // Jump asks UI Automation for a tab titled with the session's AI title or its name.
     tabExists = true
@@ -119,7 +122,7 @@ test('on Windows it reads USERPROFILE, checks pids with tasklist, and opens wt a
 
 test('in a narrow pane each line is cut short instead of wrapping or squeezing', async ($, on) => {
   const clock = mock.clock(on)
-  mock.env(on, { OS: 'Windows_NT', USERPROFILE: HOME })
+  mock.env(on, { OS: 'Windows_NT', USERPROFILE: PROFILE })
   on('fs.list', async () => ({ value: [{ name: 'live.json', kind: 'file' as const, size: 1 }] }))
   on('fs.read', async (_, e) => ({ value: slashed(e.path).endsWith('live.json') ? JSON.stringify(SESSIONS['live.json']) : MANY_REPOS }))
   on('fs.stat', async () => ({ value: { kind: 'file' as const, size: 50, mtimeMs: 1 } }))
