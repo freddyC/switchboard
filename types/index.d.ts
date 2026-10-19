@@ -12,6 +12,8 @@ export type Peer = {
   tokens?: number
   repos: string[]
   tickets: string[]
+  /** What the session's terminal tab may be titled: its AI title and its name. */
+  tabTitles: string[]
 }
 
 export type Settings = {
@@ -30,6 +32,6 @@ export type Settings = {
 
 declare module 'claude-code' {
   interface PluginState {
-    'switchboard': { peers: Peer[]; window: number; error: string; configuring: boolean; configError: string }
+    'switchboard': { peers: Peer[]; window: number; error: string; configuring: boolean; configError: string; unseen: number[] }
   }
 }
