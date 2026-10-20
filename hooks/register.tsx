@@ -100,8 +100,7 @@ type Summary = { mtimeMs: number; readAt: number; title: string; pr?: string; to
 
 // $.fs.read refuses files past 4 MB, and long sessions pass that. A bigger transcript is read
 // from its last TAIL_BYTES through a process (its stdout holds 4 MB too), at most every
-// BIG_REREAD_MS. ai-title entries recur every 100 KB or so, so the tail always has one; the
-// first, cut line fails to parse and is skipped.
+// BIG_REREAD_MS. The first, cut line of the tail fails to parse and is skipped.
 const FS_READ_LIMIT = 4 * 1024 * 1024
 const TAIL_BYTES = 3 * 1024 * 1024
 const BIG_REREAD_MS = 30_000
@@ -120,6 +119,12 @@ const TAIL_FILE = [
   '$out.Flush()',
 ].join('\n')
 
+const TITLE_MARK = '"type":"ai-title"'
+const TITLE_LINES = [
+  '[Console]::OutputEncoding = [System.Text.Encoding]::UTF8',
+  'Select-String -LiteralPath $env:SWITCHBOARD_FILE -SimpleMatch -Pattern $env:SWITCHBOARD_PATTERN | ForEach-Object { $_.Line }',
+].join('\n')
+
 async function readTranscript($: EngineInterface, path: string, size: number, onWindows: boolean) {
   if (size < FS_READ_LIMIT) return $.fs.read(path)
   const tail = onWindows
@@ -128,7 +133,16 @@ async function readTranscript($: EngineInterface, path: string, size: number, on
       })
     : await $.process.run(['tail', '-c', String(TAIL_BYTES), path])
   if (tail.exitCode !== 0) throw new Error(`could not read the end of ${path}: ${tail.stderr.trim()}`)
-  return tail.stdout
+  if (tail.stdout.includes(TITLE_MARK)) return tail.stdout
+
+  // Big tool output can push ai-title entries more than TAIL_BYTES apart, so a tail can miss
+  // them all. The file's title lines go in front, where any later entry in the tail still wins.
+  const titles = onWindows
+    ? await $.process.run(['powershell.exe', '-NoProfile', '-NonInteractive', '-Command', TITLE_LINES], {
+        env: { SWITCHBOARD_FILE: path, SWITCHBOARD_PATTERN: TITLE_MARK },
+      })
+    : await $.process.run(['grep', '-F', TITLE_MARK, path])
+  return `${titles.stdout}\n${tail.stdout}`
 }
 
 const TICKET = /\b[A-Z]{2,10}-\d{1,6}\b/g
