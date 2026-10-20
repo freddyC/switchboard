@@ -1,6 +1,6 @@
 {
   "name": "switchboard",
-  "version": "0.15.2",
+  "version": "0.15.3",
   "description": "Side pane listing your local Claude sessions with their title, status and PR",
   "types": "./types/index.d.ts",
   "author": {

@@ -307,7 +307,8 @@ async function refresh($: EngineInterface, settings: Settings) {
       waitingFor: session.waitingFor,
       startedAt: session.startedAt,
       folder: pathParts(session.cwd).pop() ?? session.cwd,
-      title: workroom || isNamedByUser ? title : '',
+      // A workroom's folder name doesn't say what's being done there; a name the user gave does.
+      title: workroom ? title : '',
       pr: summary?.pr,
       tokens: summary?.tokens,
       repos: summary?.repos ?? [],
@@ -662,7 +663,11 @@ export const register: Register = (on, options) => {
                 {waiting && <Text color="red">{waiting}</Text>}
                 {meta && <Text dimColor> · {meta}</Text>}
               </Box>
-              {peer.title && <Text>{clip(peer.title, e.props.bodyColumns)}</Text>}
+              {peer.title && (
+                <Box paddingLeft={DETAIL_INDENT}>
+                  <Text>{clip(peer.title, detailWidth)}</Text>
+                </Box>
+              )}
               {lay(details(peer), DETAIL_INDENT)}
             </Box>
           )

@@ -56,3 +56,33 @@ test('a long session keeps its title when its last ai-title is before the tail',
   expect(await ui.find({ text: /Latest title/ })).toBeTruthy()
   expect(await ui.find({ key: 'repo-100-freddyC/workroom' })).toBeTruthy()
 })
+
+test('a renamed session shows its new name without the old title; a workroom indents its title', async ($, on) => {
+  const clock = mock.clock(on)
+  mock.env(on, { HOME: '/Users/me' })
+  const sessions: Record<string, object> = {
+    'renamed.json': { pid: 100, sessionId: 'renamed', cwd: '/Users/me/claude', startedAt: 0, name: 'video-streaming-svc', nameSource: 'user', status: 'idle' },
+    'room.json': { pid: 200, sessionId: 'room', cwd: '/Users/me/claude/workroom-abc', startedAt: 0, name: 'room', nameSource: 'derived', status: 'idle' },
+  }
+  const titled = (title: string) => JSON.stringify({ type: 'ai-title', aiTitle: title, sessionId: 'x' })
+  on('fs.list', async () => ({ value: Object.keys(sessions).map(name => ({ name, kind: 'file' as const, size: 1 })) }))
+  on('fs.read', async (_, e) => {
+    if (e.path.endsWith('renamed.jsonl')) return { value: titled('Resolve.ai chat thread') }
+    if (e.path.endsWith('room.jsonl')) return { value: titled('Fix the thing') }
+    return { value: JSON.stringify(sessions[e.path.split('/').pop() ?? '']) }
+  })
+  on('fs.stat', async () => ({ value: { kind: 'file' as const, size: 100, mtimeMs: 1 } }))
+  on('session.id', async () => ({ value: 'self' }))
+  on('session.start', async (_, e) => ({ cwd: e.cwd }))
+  on('command.register', async () => ({ value: {} }))
+  on('ui.open', async () => ({ value: { isPlaced: true } }))
+  on('ui.panes', async () => ({ value: [] }))
+  on('session.usage', async () => ({ value: { startedAt: 0, context: { window: 200_000 }, rateLimits: [] } }))
+  await $.session.start({ cwd: '/Users/me', surface: 'terminal', isInteractive: true })
+  await clock.settle()
+
+  const ui = await $.ui.mount({ plugin: 'switchboard', surface: 'terminal', component: 'Pane', props: PANE, requestId: 'switchboard' })
+  expect(await ui.find({ text: /video-streaming-svc/ })).toBeTruthy()
+  expect(await ui.find({ text: /Resolve\.ai chat thread/ })).toBeFalsy()
+  expect(await ui.find({ type: 'Box', props: { paddingLeft: 6 }, text: 'Fix the thing' })).toBeTruthy()
+})
